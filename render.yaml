@@ -28,7 +28,7 @@ services:
     buildCommand: |
       corepack enable &&
       corepack prepare pnpm@9.15.0 --activate &&
-      pnpm install --frozen-lockfile &&
+      pnpm install --no-frozen-lockfile &&
       pnpm --filter @workspace/api-server run build
     
     # Start: corre el bundle compilado
@@ -73,7 +73,7 @@ services:
     buildCommand: |
       corepack enable &&
       corepack prepare pnpm@9.15.0 --activate &&
-      pnpm install --frozen-lockfile &&
+      pnpm install --no-frozen-lockfile &&
       pnpm --filter @workspace/vecino-vigilante run build
     
     # Dónde quedó el build final
