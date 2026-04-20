@@ -16,6 +16,7 @@ import Entidades from "@/pages/entidades";
 import Entidad from "@/pages/entidad";
 import Observatorio from "@/pages/observatorio";
 import Glosario from "@/pages/glosario";
+import Admin from "@/pages/admin";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +43,7 @@ function Router() {
         <Route path="/observatorio" component={Observatorio} />
         <Route path="/glosario" component={Glosario} />
         <Route path="/acerca" component={Acerca} />
+        <Route path="/admin" component={Admin} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
