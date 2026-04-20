@@ -3,6 +3,7 @@ import {
   useGetDistritos,
   useGetContrataciones,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { formatCurrency } from "@/lib/formatters";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -17,6 +18,7 @@ import {
   Shield,
   Sparkles,
 } from "lucide-react";
+import React from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
@@ -433,6 +435,24 @@ function FeatureCard({
 }
 
 function EmptyState() {
+  const queryClient = useQueryClient();
+  const [loading, setLoading] = React.useState(false);
+  const [done, setDone] = React.useState(false);
+
+  const handleLoadDemo = async () => {
+    setLoading(true);
+    try {
+      const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
+      await fetch(`${apiBase}/api/sync/seed-demo`, { method: "POST" });
+      await queryClient.invalidateQueries();
+      setDone(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="text-center py-16 bg-muted/30 rounded-2xl border-2 border-dashed border-border">
       <div className="inline-flex p-4 bg-muted rounded-full mb-4">
@@ -441,13 +461,32 @@ function EmptyState() {
       <p className="text-muted-foreground font-medium mb-2">
         Aún no hay contrataciones para mostrar
       </p>
-      <p className="text-sm text-muted-foreground max-w-md mx-auto">
-        Los datos se sincronizan diariamente desde el OECE. Si acabas de
-        configurar el proyecto, ejecuta el endpoint{" "}
-        <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
-          POST /api/sync
-        </code>{" "}
-        para cargar datos.
+      <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
+        Los datos se sincronizan diariamente desde el OECE. La API del OSCE puede
+        requerir un servidor con IP peruana. Puedes cargar datos de ejemplo para
+        ver cómo funciona la web.
+      </p>
+      {done ? (
+        <p className="text-sm text-green-600 font-medium">✅ Datos cargados. Recargando...</p>
+      ) : (
+        <Button
+          onClick={handleLoadDemo}
+          disabled={loading}
+          className="bg-primary text-white hover:bg-primary/90"
+        >
+          {loading ? (
+            <><span className="animate-spin mr-2">⟳</span> Cargando datos demo...</>
+          ) : (
+            <>⚡ Cargar datos de demostración</>
+          )}
+        </Button>
+      )}
+      <p className="text-xs text-muted-foreground mt-3">
+        O ve a{" "}
+        <Link href="/admin" className="underline text-primary">
+          Administrar
+        </Link>{" "}
+        para más opciones de sincronización.
       </p>
     </div>
   );
