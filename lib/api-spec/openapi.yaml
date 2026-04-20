@@ -3,13 +3,25 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Vecino Vigilante - API de contrataciones públicas de Chanchamayo y Junín
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: contrataciones
+    description: Contrataciones públicas
+  - name: distritos
+    description: Distritos y ubigeos
+  - name: entidades
+    description: Entidades contratantes
+  - name: proveedores
+    description: Proveedores adjudicados
+  - name: stats
+    description: Estadísticas y KPIs
+  - name: observatorio
+    description: Rankings y análisis
 paths:
   /healthz:
     get:
@@ -24,6 +36,443 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /contrataciones:
+    get:
+      operationId: getContrataciones
+      tags: [contrataciones]
+      summary: Listar contrataciones con filtros
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: tipo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: estado
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: procedimiento
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: entidadRuc
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: proveedorRuc
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: fechaDesde
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: fechaHasta
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: montoMin
+          in: query
+          schema:
+            type: ["number", "null"]
+        - name: montoMax
+          in: query
+          schema:
+            type: ["number", "null"]
+        - name: q
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: ordenar
+          in: query
+          schema:
+            type: ["string", "null"]
+            enum: ["fecha_desc", "fecha_asc", "monto_desc", "monto_asc", null]
+      responses:
+        "200":
+          description: Lista paginada de contrataciones
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContratacionesResponse"
+
+  /contrataciones/{ocid}:
+    get:
+      operationId: getContratacion
+      tags: [contrataciones]
+      summary: Detalle de una contratación por OCID
+      parameters:
+        - name: ocid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Detalle de la contratación
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContratacionDetalle"
+        "404":
+          description: No encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /distritos:
+    get:
+      operationId: getDistritos
+      tags: [distritos]
+      summary: Listar distritos de Junín con resumen estadístico
+      parameters:
+        - name: provincia
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Lista de distritos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DistritoResumen"
+
+  /distritos/{ubigeo}:
+    get:
+      operationId: getDistrito
+      tags: [distritos]
+      summary: Detalle de un distrito con sus estadísticas
+      parameters:
+        - name: ubigeo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Detalle del distrito
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistritoDetalle"
+        "404":
+          description: No encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /entidades:
+    get:
+      operationId: getEntidades
+      tags: [entidades]
+      summary: Listar entidades contratantes
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: q
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Lista de entidades
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntidadesResponse"
+
+  /entidades/{ruc}:
+    get:
+      operationId: getEntidad
+      tags: [entidades]
+      summary: Ficha de una entidad contratante
+      parameters:
+        - name: ruc
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Detalle de la entidad
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntidadDetalle"
+        "404":
+          description: No encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /proveedores:
+    get:
+      operationId: getProveedores
+      tags: [proveedores]
+      summary: Listar proveedores adjudicados
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: q
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Lista de proveedores
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProveedoresResponse"
+
+  /proveedores/{ruc}:
+    get:
+      operationId: getProveedor
+      tags: [proveedores]
+      summary: Ficha de un proveedor
+      parameters:
+        - name: ruc
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Detalle del proveedor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProveedorDetalle"
+        "404":
+          description: No encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [stats]
+      summary: KPIs globales del portal
+      parameters:
+        - name: anio
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Estadísticas globales
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsGlobales"
+
+  /stats/evolucion:
+    get:
+      operationId: getEvolucionMensual
+      tags: [stats]
+      summary: Evolución mensual de contrataciones
+      parameters:
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: anios
+          in: query
+          schema:
+            type: ["integer", "null"]
+            default: 2
+      responses:
+        "200":
+          description: Serie mensual
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PuntoEvolucion"
+
+  /stats/tipo-distribucion:
+    get:
+      operationId: getTipoDistribucion
+      tags: [stats]
+      summary: Distribución de contrataciones por tipo (obras, bienes, servicios, consultoría)
+      parameters:
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: anio
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Distribución por tipo
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TipoDistribucion"
+
+  /observatorio/rankings:
+    get:
+      operationId: getRankings
+      tags: [observatorio]
+      summary: Rankings de entidades y proveedores
+      parameters:
+        - name: anio
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Rankings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rankings"
+
+  /observatorio/alertas:
+    get:
+      operationId: getAlertas
+      tags: [observatorio]
+      summary: Contrataciones con indicadores de alerta
+      parameters:
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Lista de alertas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertaContratacion"
+
+  /excel/preview:
+    get:
+      operationId: getExcelPreview
+      tags: [stats]
+      summary: Preview de cuántos registros y monto total para los filtros del Excel
+      parameters:
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: tipo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: estado
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: fechaDesde
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: fechaHasta
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: montoMin
+          in: query
+          schema:
+            type: ["number", "null"]
+        - name: montoMax
+          in: query
+          schema:
+            type: ["number", "null"]
+        - name: entidadRuc
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Vista previa de registros
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExcelPreview"
+
+  /sync:
+    post:
+      operationId: triggerSync
+      tags: [stats]
+      summary: Dispara sincronización con API OCDS (protegido)
+      responses:
+        "200":
+          description: Sync iniciado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+        "401":
+          description: No autorizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +483,489 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    Contratacion:
+      type: object
+      properties:
+        ocid:
+          type: string
+        nomenclatura:
+          type: ["string", "null"]
+        titulo:
+          type: string
+        descripcion:
+          type: ["string", "null"]
+        tipo:
+          type: ["string", "null"]
+        procedimiento:
+          type: ["string", "null"]
+        estado:
+          type: ["string", "null"]
+        entidadRuc:
+          type: ["string", "null"]
+        entidadNombre:
+          type: ["string", "null"]
+        proveedorRuc:
+          type: ["string", "null"]
+        proveedorNombre:
+          type: ["string", "null"]
+        ubigeoCodigo:
+          type: ["string", "null"]
+        ubigeoDistrito:
+          type: ["string", "null"]
+        ubigeoProvincia:
+          type: ["string", "null"]
+        montoReferencial:
+          type: ["number", "null"]
+        montoAdjudicado:
+          type: ["number", "null"]
+        moneda:
+          type: ["string", "null"]
+        fechaConvocatoria:
+          type: ["string", "null"]
+        fechaAdjudicacion:
+          type: ["string", "null"]
+        fechaContrato:
+          type: ["string", "null"]
+        plazoEjecucionDias:
+          type: ["integer", "null"]
+        createdAt:
+          type: ["string", "null"]
+        updatedAt:
+          type: ["string", "null"]
+      required:
+        - ocid
+        - titulo
+
+    ContratacionDetalle:
+      allOf:
+        - $ref: "#/components/schemas/Contratacion"
+        - type: object
+          properties:
+            entidad:
+              $ref: "#/components/schemas/EntidadBasica"
+            proveedor:
+              $ref: "#/components/schemas/ProveedorBasico"
+            ubigeo:
+              $ref: "#/components/schemas/UbigeoBasico"
+            rawOcds:
+              type: ["object", "null"]
+          required: []
+
+    ContratacionesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contratacion"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        pages:
+          type: integer
+        montoTotal:
+          type: ["number", "null"]
+      required:
+        - data
+        - total
+        - page
+        - limit
+        - pages
+
+    UbigeoBasico:
+      type: object
+      properties:
+        codigo:
+          type: string
+        departamento:
+          type: string
+        provincia:
+          type: string
+        distrito:
+          type: string
+        latitud:
+          type: ["number", "null"]
+        longitud:
+          type: ["number", "null"]
+      required:
+        - codigo
+        - departamento
+        - provincia
+        - distrito
+
+    DistritoResumen:
+      type: object
+      properties:
+        codigo:
+          type: string
+        departamento:
+          type: string
+        provincia:
+          type: string
+        distrito:
+          type: string
+        latitud:
+          type: ["number", "null"]
+        longitud:
+          type: ["number", "null"]
+        superficieKm2:
+          type: ["number", "null"]
+        totalContrataciones:
+          type: integer
+        montoTotal:
+          type: ["number", "null"]
+        contratacionesEsteAnio:
+          type: integer
+        montoEsteAnio:
+          type: ["number", "null"]
+      required:
+        - codigo
+        - departamento
+        - provincia
+        - distrito
+        - totalContrataciones
+        - contratacionesEsteAnio
+
+    DistritoDetalle:
+      allOf:
+        - $ref: "#/components/schemas/DistritoResumen"
+        - type: object
+          properties:
+            contratacionesRecientes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Contratacion"
+            topProveedores:
+              type: array
+              items:
+                $ref: "#/components/schemas/ProveedorRanking"
+            distribucionTipo:
+              type: array
+              items:
+                $ref: "#/components/schemas/TipoDistribucion"
+            evolucionMensual:
+              type: array
+              items:
+                $ref: "#/components/schemas/PuntoEvolucion"
+          required: []
+
+    EntidadBasica:
+      type: object
+      properties:
+        ruc:
+          type: string
+        nombre:
+          type: string
+        tipo:
+          type: ["string", "null"]
+        nivelGobierno:
+          type: ["string", "null"]
+        ubigeoCodigo:
+          type: ["string", "null"]
+      required:
+        - ruc
+        - nombre
+
+    EntidadDetalle:
+      allOf:
+        - $ref: "#/components/schemas/EntidadBasica"
+        - type: object
+          properties:
+            ubigeo:
+              $ref: "#/components/schemas/UbigeoBasico"
+            totalContrataciones:
+              type: integer
+            montoTotal:
+              type: ["number", "null"]
+            contratacionesEsteAnio:
+              type: integer
+            topProveedores:
+              type: array
+              items:
+                $ref: "#/components/schemas/ProveedorRanking"
+            contratacionesRecientes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Contratacion"
+            distribucionTipo:
+              type: array
+              items:
+                $ref: "#/components/schemas/TipoDistribucion"
+          required:
+            - totalContrataciones
+            - contratacionesEsteAnio
+
+    EntidadesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntidadBasica"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        pages:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+        - pages
+
+    ProveedorBasico:
+      type: object
+      properties:
+        ruc:
+          type: string
+        razonSocial:
+          type: string
+        ubigeoCodigo:
+          type: ["string", "null"]
+        vigenteRnp:
+          type: ["string", "null"]
+      required:
+        - ruc
+        - razonSocial
+
+    ProveedorDetalle:
+      allOf:
+        - $ref: "#/components/schemas/ProveedorBasico"
+        - type: object
+          properties:
+            ubigeo:
+              $ref: "#/components/schemas/UbigeoBasico"
+            totalAdjudicaciones:
+              type: integer
+            montoTotalGanado:
+              type: ["number", "null"]
+            entidadesUnicas:
+              type: integer
+            adjudicacionesRecientes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Contratacion"
+            topEntidades:
+              type: array
+              items:
+                $ref: "#/components/schemas/EntidadRanking"
+            evolucionMensual:
+              type: array
+              items:
+                $ref: "#/components/schemas/PuntoEvolucion"
+          required:
+            - totalAdjudicaciones
+
+    ProveedoresResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProveedorBasico"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        pages:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+        - pages
+
+    ProveedorRanking:
+      type: object
+      properties:
+        ruc:
+          type: string
+        razonSocial:
+          type: string
+        totalAdjudicaciones:
+          type: integer
+        montoTotal:
+          type: ["number", "null"]
+      required:
+        - ruc
+        - razonSocial
+        - totalAdjudicaciones
+
+    EntidadRanking:
+      type: object
+      properties:
+        ruc:
+          type: string
+        nombre:
+          type: string
+        totalContrataciones:
+          type: integer
+        montoTotal:
+          type: ["number", "null"]
+      required:
+        - ruc
+        - nombre
+        - totalContrataciones
+
+    StatsGlobales:
+      type: object
+      properties:
+        totalContrataciones:
+          type: integer
+        montoTotal:
+          type: ["number", "null"]
+        contratacionesEsteAnio:
+          type: integer
+        montoEsteAnio:
+          type: ["number", "null"]
+        obrasEnEjecucion:
+          type: integer
+        entidadesActivas:
+          type: integer
+        proveedoresUnicos:
+          type: integer
+        ultimaSincronizacion:
+          type: ["string", "null"]
+        porcentajeDirectas:
+          type: ["number", "null"]
+        porcentajeCompetitivas:
+          type: ["number", "null"]
+      required:
+        - totalContrataciones
+        - contratacionesEsteAnio
+        - obrasEnEjecucion
+        - entidadesActivas
+        - proveedoresUnicos
+
+    PuntoEvolucion:
+      type: object
+      properties:
+        mes:
+          type: string
+        anio:
+          type: integer
+        periodo:
+          type: string
+        totalContrataciones:
+          type: integer
+        montoTotal:
+          type: ["number", "null"]
+      required:
+        - mes
+        - anio
+        - periodo
+        - totalContrataciones
+
+    TipoDistribucion:
+      type: object
+      properties:
+        tipo:
+          type: string
+        total:
+          type: integer
+        monto:
+          type: ["number", "null"]
+        porcentaje:
+          type: number
+      required:
+        - tipo
+        - total
+        - porcentaje
+
+    Rankings:
+      type: object
+      properties:
+        topEntidadesMonto:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntidadRanking"
+        topProveedoresMonto:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProveedorRanking"
+        entidadesMasDirectas:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntidadRanking"
+      required:
+        - topEntidadesMonto
+        - topProveedoresMonto
+        - entidadesMasDirectas
+
+    AlertaContratacion:
+      type: object
+      properties:
+        ocid:
+          type: string
+        titulo:
+          type: string
+        tipoAlerta:
+          type: string
+        descripcionAlerta:
+          type: string
+        montoReferencial:
+          type: ["number", "null"]
+        montoAdjudicado:
+          type: ["number", "null"]
+        entidadNombre:
+          type: ["string", "null"]
+        distrito:
+          type: ["string", "null"]
+        procedimiento:
+          type: ["string", "null"]
+      required:
+        - ocid
+        - titulo
+        - tipoAlerta
+        - descripcionAlerta
+
+    ExcelPreview:
+      type: object
+      properties:
+        totalRegistros:
+          type: integer
+        montoTotal:
+          type: ["number", "null"]
+        entidadesUnicas:
+          type: integer
+        proveedoresUnicos:
+          type: integer
+      required:
+        - totalRegistros
+        - entidadesUnicas
+        - proveedoresUnicos
+
+    SyncResult:
+      type: object
+      properties:
+        message:
+          type: string
+        registrosProcesados:
+          type: integer
+        registrosNuevos:
+          type: integer
+        registrosActualizados:
+          type: integer
+        estado:
+          type: string
+      required:
+        - message
+        - estado
