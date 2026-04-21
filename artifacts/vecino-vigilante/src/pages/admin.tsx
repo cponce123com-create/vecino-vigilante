@@ -1,519 +1,305 @@
-import { useState } from "react";
-import { useGetStats } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState, useRef } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Separator } from "@/components/ui/separator";
-import {
-  RefreshCw,
-  Database,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Zap,
-  Globe,
-  Upload,
-  Info,
-} from "lucide-react";
+import { Upload, CheckCircle, AlertCircle, Loader2, FileText, Info } from "lucide-react";
+import { useGetStats } from "@workspace/api-client-react";
+import { formatCurrency } from "@/lib/formatters";
 
-type SyncResult = {
-  message?: string;
-  estado?: string;
-  estrategia?: string;
-  duracionSegundos?: number;
-  paginasRecorridas?: number;
-  juninEncontrados?: number;
-  registrosProcesados?: number;
-  registrosNuevos?: number;
-  registrosActualizados?: number;
-  erroresCount?: number;
-  mensaje?: string;
-  error?: string;
-  // seed-demo specific
-  entidades?: number;
-  proveedores?: number;
-  contrataciones?: { insertadas: number; omitidas: number };
-};
+// Parsea un CSV a array de objetos usando la primera fila como headers
+function parseCSV(text: string): Record<string, string>[] {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return [];
+  
+  // Handle quoted fields
+  function parseLine(line: string): string[] {
+    const result: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"' && !inQuotes) { inQuotes = true; }
+      else if (ch === '"' && inQuotes && line[i+1] === '"') { current += '"'; i++; }
+      else if (ch === '"' && inQuotes) { inQuotes = false; }
+      else if (ch === ',' && !inQuotes) { result.push(current); current = ""; }
+      else { current += ch; }
+    }
+    result.push(current);
+    return result;
+  }
+
+  const headers = parseLine(lines[0]);
+  return lines.slice(1).filter(l => l.trim()).map(line => {
+    const values = parseLine(line);
+    const obj: Record<string, string> = {};
+    headers.forEach((h, i) => { obj[h.trim()] = (values[i] ?? "").trim(); });
+    return obj;
+  });
+}
+
+type UploadState = "idle" | "loading" | "success" | "error";
+
+interface Result {
+  chanchamayoEncontrados: number;
+  procesados: number;
+  nuevos: number;
+  actualizados: number;
+  errores: number;
+}
 
 export default function Admin() {
-  const { data: stats, refetch: refetchStats, isLoading: isLoadingStats } = useGetStats();
-  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isSeeding, setIsSeeding] = useState(false);
-  const [syncLog, setSyncLog] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"status" | "sync" | "upload">("status");
+  const { data: stats, refetch } = useGetStats();
+  const [state, setState] = useState<UploadState>("idle");
+  const [result, setResult] = useState<Result | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [progress, setProgress] = useState("");
 
-  const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
+  // Refs para los 4 archivos
+  const registrosRef = useRef<HTMLInputElement>(null);
+  const partesRef = useRef<HTMLInputElement>(null);
+  const adjRef = useRef<HTMLInputElement>(null);
+  const conRef = useRef<HTMLInputElement>(null);
 
-  const handleSync = async () => {
-    setIsSyncing(true);
-    setSyncResult(null);
-    setSyncLog("Iniciando sincronización con OSCE...\n");
-    try {
-      const res = await fetch(`${apiBaseUrl}/api/sync`, { method: "GET" });
-      const data = await res.json() as SyncResult;
-      setSyncResult(data);
-      setSyncLog((prev) => prev + `\n✅ Sincronización completada`);
-      refetchStats();
-    } catch (err) {
-      setSyncResult({ error: String(err) });
-      setSyncLog((prev) => prev + `\n❌ Error: ${String(err)}`);
-    } finally {
-      setIsSyncing(false);
+  const apiBase = import.meta.env.VITE_API_BASE_URL ?? "";
+  const secret = import.meta.env.VITE_SYNC_SECRET ?? "";
+
+  async function readFile(file: File): Promise<Record<string, string>[]> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const text = e.target?.result as string;
+          resolve(parseCSV(text));
+        } catch (err) { reject(err); }
+      };
+      reader.onerror = () => reject(new Error("Error leyendo archivo"));
+      reader.readAsText(file, "utf-8");
+    });
+  }
+
+  async function handleUpload() {
+    const registrosFile = registrosRef.current?.files?.[0];
+    const partesFile = partesRef.current?.files?.[0];
+
+    if (!registrosFile || !partesFile) {
+      setErrorMsg("Los archivos Registros.csv y Ent_PartesInvolucradas.csv son obligatorios");
+      setState("error");
+      return;
     }
-  };
 
-  const handleSeedDemo = async () => {
-    setIsSeeding(true);
-    setSyncResult(null);
-    setSyncLog("Cargando datos de demostración...\n");
+    setState("loading");
+    setErrorMsg("");
+    setResult(null);
+
     try {
-      const res = await fetch(`${apiBaseUrl}/api/sync/seed-demo`, { method: "POST" });
-      const data = await res.json() as SyncResult;
-      setSyncResult(data);
-      setSyncLog((prev) => prev + `\n✅ Datos demo cargados`);
-      refetchStats();
-    } catch (err) {
-      setSyncResult({ error: String(err) });
-      setSyncLog((prev) => prev + `\n❌ Error: ${String(err)}`);
-    } finally {
-      setIsSeeding(false);
-    }
-  };
+      setProgress("Leyendo Registros.csv...");
+      const registros = await readFile(registrosFile);
 
-  const isWorking = isSyncing || isSeeding;
+      setProgress("Leyendo Ent_PartesInvolucradas.csv...");
+      const partes = await readFile(partesFile);
+
+      let adjudicaciones: Record<string, string>[] = [];
+      let contratos: Record<string, string>[] = [];
+
+      if (adjRef.current?.files?.[0]) {
+        setProgress("Leyendo Ent_Adjudicaciones.csv...");
+        adjudicaciones = await readFile(adjRef.current.files[0]);
+      }
+      if (conRef.current?.files?.[0]) {
+        setProgress("Leyendo Ent_Contratos.csv...");
+        contratos = await readFile(conRef.current.files[0]);
+      }
+
+      setProgress(`Enviando ${registros.length} registros al servidor...`);
+
+      const res = await fetch(`${apiBase}/api/sync/csv`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(secret ? { "x-sync-secret": secret } : {}),
+        },
+        body: JSON.stringify({ registros, partes, adjudicaciones, contratos }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Error del servidor");
+
+      setResult(data);
+      setState("success");
+      refetch();
+    } catch (err) {
+      setErrorMsg(String(err));
+      setState("error");
+    } finally {
+      setProgress("");
+    }
+  }
+
+  function reset() {
+    setState("idle");
+    setResult(null);
+    setErrorMsg("");
+    if (registrosRef.current) registrosRef.current.value = "";
+    if (partesRef.current) partesRef.current.value = "";
+    if (adjRef.current) adjRef.current.value = "";
+    if (conRef.current) conRef.current.value = "";
+  }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <div className="container mx-auto px-4 py-10 max-w-3xl">
       <div className="mb-8">
-        <h1 className="font-serif text-4xl font-bold text-accent mb-2">Panel de Administración</h1>
-        <p className="text-muted-foreground text-lg">
-          Gestiona la sincronización de datos con las APIs del OSCE/SEACE
-        </p>
+        <h1 className="text-3xl font-serif font-bold text-accent">Panel de Administración</h1>
+        <p className="text-muted-foreground mt-2">Carga datos del OECE para Chanchamayo</p>
       </div>
 
-      {/* Estado actual */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Contrataciones"
-          value={isLoadingStats ? "..." : (stats?.totalContrataciones?.toLocaleString("es-PE") ?? "0")}
-          icon={<Database className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Entidades"
-          value={isLoadingStats ? "..." : (stats?.entidadesActivas?.toString() ?? "0")}
-          icon={<Globe className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Proveedores"
-          value={isLoadingStats ? "..." : (stats?.proveedoresUnicos?.toString() ?? "0")}
-          icon={<Database className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Última sync"
-          value={
-            stats?.ultimaSincronizacion
-              ? new Date(stats.ultimaSincronizacion).toLocaleDateString("es-PE")
-              : "Nunca"
-          }
-          icon={<Clock className="h-4 w-4" />}
-        />
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 border-b">
+      {/* Stats actuales */}
+      <div className="grid grid-cols-3 gap-4 mb-8">
         {[
-          { key: "status", label: "Estado" },
-          { key: "sync", label: "Sincronizar" },
-          { key: "upload", label: "Carga manual" },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key as typeof activeTab)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.key
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-          </button>
+          { label: "Contrataciones", value: stats?.totalContrataciones ?? "—" },
+          { label: "Entidades", value: stats?.entidadesActivas ?? "—" },
+          { label: "Proveedores", value: stats?.proveedoresUnicos ?? "—" },
+        ].map(({ label, value }) => (
+          <Card key={label}>
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold text-accent">{value}</p>
+              <p className="text-sm text-muted-foreground">{label}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      {/* Tab: Estado */}
-      {activeTab === "status" && (
-        <div className="space-y-4">
-          <Alert className="border-blue-200 bg-blue-50">
-            <Info className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-blue-800">
-              <strong>¿Por qué la web aparece con datos vacíos?</strong>
-              <br />
-              La API pública del OSCE (<code className="text-xs bg-blue-100 px-1 rounded">contratacionesabiertas.osce.gob.pe</code>)
-              solo es accesible desde servidores con IP peruana. Si tu servidor está en otro país (Render, AWS us-east, etc.),
-              las solicitudes son bloqueadas por geofiltro.
-            </AlertDescription>
-          </Alert>
+      {/* Instrucciones */}
+      <Card className="mb-6 border-blue-200 bg-blue-50">
+        <CardContent className="p-4">
+          <div className="flex gap-3">
+            <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800 space-y-1">
+              <p className="font-semibold">Cómo obtener los archivos:</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>Ve a <a href="https://contratacionesabiertas.oece.gob.pe/descargas" target="_blank" rel="noreferrer" className="underline font-medium">contratacionesabiertas.oece.gob.pe/descargas</a></li>
+                <li>Descarga el ZIP del mes que quieras (formato <strong>CSV (ES)</strong>)</li>
+                <li>Descomprime el ZIP y sube los 4 archivos aquí</li>
+                <li>Solo se importarán los registros de <strong>Chanchamayo</strong></li>
+              </ol>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Diagnóstico del sistema</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <DiagItem
-                title="Base de datos"
-                status={stats?.totalContrataciones ? "ok" : "warning"}
-                detail={
-                  stats?.totalContrataciones
-                    ? `${stats.totalContrataciones} contratos registrados`
-                    : "Sin datos. Ejecuta una sincronización."
-                }
-              />
-              <DiagItem
-                title="API OSCE OCDS"
-                status="warning"
-                detail="Puede estar bloqueada si el servidor está fuera de Perú. Usa la opción 'Datos Demo' para probar la web."
-              />
-              <DiagItem
-                title="Base de datos conectada"
-                status={stats !== undefined ? "ok" : "error"}
-                detail={stats !== undefined ? "La base de datos responde correctamente" : "Error de conexión a la BD"}
-              />
-            </CardContent>
-          </Card>
+      {/* Upload form */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="h-5 w-5" />
+            Cargar archivos CSV
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <FileInput
+            label="Registros.csv"
+            required
+            inputRef={registrosRef}
+            disabled={state === "loading"}
+          />
+          <FileInput
+            label="Ent_PartesInvolucradas.csv"
+            required
+            inputRef={partesRef}
+            disabled={state === "loading"}
+          />
+          <FileInput
+            label="Ent_Adjudicaciones.csv"
+            inputRef={adjRef}
+            disabled={state === "loading"}
+          />
+          <FileInput
+            label="Ent_Contratos.csv"
+            inputRef={conRef}
+            disabled={state === "loading"}
+          />
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Soluciones disponibles</CardTitle>
-              <CardDescription>Elige la opción que mejor se adapte a tu situación</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <SolutionItem
-                  emoji="🇵🇪"
-                  title="Servidor en Perú"
-                  description="Despliega el backend en un servidor con IP peruana (AWS Lima, DigitalOcean São Paulo, etc.) y la API OCDS funcionará directamente."
-                  badge="Recomendado para producción"
-                  badgeColor="green"
-                />
-                <SolutionItem
-                  emoji="🎭"
-                  title="Datos de demostración"
-                  description="Carga 12 contratos de ejemplo con entidades y proveedores reales de Chanchamayo para ver la web funcionando ahora."
-                  badge="Para probar la web"
-                  badgeColor="blue"
-                />
-                <SolutionItem
-                  emoji="📤"
-                  title="Carga manual OCDS"
-                  description="Descarga manualmente el JSON de contrataciones desde datosabiertos.seace.gob.pe y súbelo vía la pestaña 'Carga manual'."
-                  badge="Avanzado"
-                  badgeColor="orange"
-                />
+          {state === "loading" && (
+            <div className="flex items-center gap-3 p-3 bg-muted rounded-lg text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              {progress || "Procesando..."}
+            </div>
+          )}
+
+          {state === "success" && result && (
+            <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-green-800">
+                <p className="font-semibold mb-1">¡Carga exitosa!</p>
+                <ul className="space-y-0.5">
+                  <li>Chanchamayo encontrados: <strong>{result.chanchamayoEncontrados}</strong></li>
+                  <li>Procesados: <strong>{result.procesados}</strong></li>
+                  <li>Nuevos: <strong>{result.nuevos}</strong></li>
+                  <li>Actualizados: <strong>{result.actualizados}</strong></li>
+                  {result.errores > 0 && <li className="text-orange-700">Con errores: <strong>{result.errores}</strong></li>}
+                </ul>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            </div>
+          )}
 
-      {/* Tab: Sincronizar */}
-      {activeTab === "sync" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Zap className="h-5 w-5 text-primary" />
-                Sincronización Automática
-              </CardTitle>
-              <CardDescription>
-                Intenta conectarse a la API OCDS del OSCE. Si no está disponible, prueba la descarga de archivos masivos.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          {state === "error" && (
+            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-red-800">
+                <p className="font-semibold">Error</p>
+                <p>{errorMsg}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            {state === "success" || state === "error" ? (
+              <Button onClick={reset} variant="outline">Cargar otro mes</Button>
+            ) : (
               <Button
-                onClick={handleSync}
-                disabled={isWorking}
-                className="w-full"
-                size="lg"
+                onClick={handleUpload}
+                disabled={state === "loading"}
+                className="bg-primary hover:bg-primary/90"
               >
-                {isSyncing ? (
-                  <><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Sincronizando...</>
+                {state === "loading" ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</>
                 ) : (
-                  <><RefreshCw className="mr-2 h-4 w-4" /> Iniciar sincronización con OSCE</>
+                  <><Upload className="mr-2 h-4 w-4" />Importar datos</>
                 )}
               </Button>
-
-              <Separator />
-
-              <div>
-                <h3 className="font-semibold mb-2 text-sm flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-yellow-500" />
-                  Cargar datos de demostración
-                </h3>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Inserta 12 contrataciones reales de Chanchamayo para ver la web funcionando de inmediato.
-                  Solo afecta si la base de datos está vacía (no sobreescribe datos existentes).
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={handleSeedDemo}
-                  disabled={isWorking}
-                  className="w-full border-yellow-300 text-yellow-700 hover:bg-yellow-50"
-                >
-                  {isSeeding ? (
-                    <><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Cargando datos demo...</>
-                  ) : (
-                    <><Zap className="mr-2 h-4 w-4" /> Cargar datos de demostración</>
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Log / Resultado */}
-          {(syncLog || syncResult) && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Resultado</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {syncResult && !syncResult.error && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {syncResult.registrosNuevos !== undefined && (
-                      <ResultMetric label="Nuevos" value={syncResult.registrosNuevos} color="green" />
-                    )}
-                    {syncResult.registrosActualizados !== undefined && (
-                      <ResultMetric label="Actualizados" value={syncResult.registrosActualizados} color="blue" />
-                    )}
-                    {syncResult.contrataciones && (
-                      <ResultMetric label="Insertadas" value={syncResult.contrataciones.insertadas} color="green" />
-                    )}
-                    {syncResult.duracionSegundos !== undefined && (
-                      <ResultMetric label="Duración (s)" value={syncResult.duracionSegundos} />
-                    )}
-                    {syncResult.juninEncontrados !== undefined && (
-                      <ResultMetric label="De Junín" value={syncResult.juninEncontrados} />
-                    )}
-                    {syncResult.erroresCount !== undefined && (
-                      <ResultMetric label="Errores" value={syncResult.erroresCount} color={syncResult.erroresCount > 0 ? "red" : "green"} />
-                    )}
-                  </div>
-                )}
-
-                {syncResult?.mensaje && (
-                  <Alert className="border-orange-200 bg-orange-50">
-                    <AlertCircle className="h-4 w-4 text-orange-600" />
-                    <AlertDescription className="text-orange-800 text-xs">
-                      {syncResult.mensaje}
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {syncResult?.error && (
-                  <Alert className="border-red-200 bg-red-50">
-                    <AlertCircle className="h-4 w-4 text-red-600" />
-                    <AlertDescription className="text-red-800 text-xs">
-                      Error: {syncResult.error}
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {syncResult?.estado && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Estado:</span>
-                    <Badge
-                      className={
-                        syncResult.estado === "OK"
-                          ? "bg-green-100 text-green-800"
-                          : syncResult.estado === "PARCIAL"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-red-100 text-red-800"
-                      }
-                    >
-                      {syncResult.estado}
-                    </Badge>
-                    {syncResult.estrategia && (
-                      <Badge variant="outline" className="text-xs">
-                        Vía: {syncResult.estrategia}
-                      </Badge>
-                    )}
-                  </div>
-                )}
-
-                {syncResult?.message && !syncResult.error && (
-                  <p className="text-sm text-green-700 flex items-center gap-1">
-                    <CheckCircle2 className="h-4 w-4" />
-                    {syncResult.message}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* Tab: Carga manual */}
-      {activeTab === "upload" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Upload className="h-5 w-5" />
-                Carga Manual de Datos OCDS
-              </CardTitle>
-              <CardDescription>
-                Si la API está bloqueada, descarga el JSON del SEACE y súbelo aquí
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Alert className="border-blue-200 bg-blue-50">
-                <Info className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-blue-800 text-sm">
-                  <strong>Cómo obtener los datos manualmente:</strong>
-                  <ol className="mt-2 space-y-1 list-decimal list-inside text-xs">
-                    <li>Visita <a href="https://contratacionesabiertas.osce.gob.pe/descargas" target="_blank" rel="noopener" className="underline">contratacionesabiertas.osce.gob.pe/descargas</a></li>
-                    <li>Descarga el archivo JSON de contrataciones de Junín</li>
-                    <li>Usa la API <code className="bg-blue-100 px-1 rounded">POST /api/sync/upload</code> con el JSON</li>
-                  </ol>
-                </AlertDescription>
-              </Alert>
-
-              <div className="bg-muted rounded-lg p-4 text-sm">
-                <p className="font-medium mb-2">Ejemplo de uso con curl:</p>
-                <pre className="text-xs overflow-x-auto bg-background p-3 rounded border">
-{`curl -X POST ${apiBaseUrl || "https://tu-api.onrender.com"}/api/sync/upload \\
-  -H "Content-Type: application/json" \\
-  -H "x-sync-secret: TU_SYNC_SECRET" \\
-  -d @archivo-contrataciones-junin.json`}
-                </pre>
-              </div>
-
-              <div className="bg-muted rounded-lg p-4 text-sm">
-                <p className="font-medium mb-2">Formato esperado del JSON:</p>
-                <pre className="text-xs overflow-x-auto bg-background p-3 rounded border">
-{`{
-  "releases": [
-    {
-      "ocid": "ocds-...",
-      "tender": { ... },
-      "awards": [ ... ],
-      "buyer": { ... }
-    }
-  ],
-  "filtrarJunin": true
-}`}
-                </pre>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                También puedes usar la API de archivos masivos del OSCE directamente:
-                <br />
-                <code className="bg-muted px-1 rounded">GET /api/sync</code> — dispara la sincronización automática
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-// ── Componentes auxiliares ─────────────────────────────────────────────────────
-
-function StatCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
-  return (
-    <Card className="border-none shadow-sm bg-white">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 text-muted-foreground mb-1">
-          {icon}
-          <span className="text-xs font-medium">{label}</span>
-        </div>
-        <p className="text-2xl font-bold text-foreground">{value}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function DiagItem({
-  title,
-  status,
-  detail,
-}: {
-  title: string;
-  status: "ok" | "warning" | "error";
-  detail: string;
-}) {
-  const icons = {
-    ok: <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />,
-    warning: <AlertCircle className="h-4 w-4 text-yellow-600 shrink-0" />,
-    error: <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />,
-  };
-  return (
-    <div className="flex items-start gap-3">
-      {icons[status]}
-      <div>
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{detail}</p>
-      </div>
-    </div>
-  );
-}
-
-function SolutionItem({
-  emoji,
-  title,
-  description,
-  badge,
-  badgeColor,
-}: {
-  emoji: string;
-  title: string;
-  description: string;
-  badge: string;
-  badgeColor: "green" | "blue" | "orange";
-}) {
-  const colors = {
-    green: "bg-green-100 text-green-800",
-    blue: "bg-blue-100 text-blue-800",
-    orange: "bg-orange-100 text-orange-800",
-  };
-  return (
-    <div className="flex gap-3 p-3 rounded-lg border bg-muted/30">
-      <span className="text-2xl">{emoji}</span>
-      <div className="flex-1">
-        <div className="flex items-center gap-2 mb-1">
-          <p className="text-sm font-semibold">{title}</p>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${colors[badgeColor]}`}>
-            {badge}
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-    </div>
-  );
-}
-
-function ResultMetric({
+function FileInput({
   label,
-  value,
-  color,
+  required,
+  inputRef,
+  disabled,
 }: {
   label: string;
-  value: number;
-  color?: "green" | "blue" | "red";
+  required?: boolean;
+  inputRef: React.RefObject<HTMLInputElement>;
+  disabled: boolean;
 }) {
-  const colorClasses = {
-    green: "text-green-700",
-    blue: "text-blue-700",
-    red: "text-red-700",
-  };
   return (
-    <div className="bg-muted rounded-lg p-3 text-center">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-xl font-bold ${color ? colorClasses[color] : "text-foreground"}`}>
-        {value}
-      </p>
+    <div>
+      <label className="block text-sm font-medium text-foreground mb-1">
+        {label}
+        {required && <span className="text-red-500 ml-1">*</span>}
+      </label>
+      <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors">
+        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv"
+          disabled={disabled}
+          className="text-sm text-foreground file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-primary file:text-white hover:file:bg-primary/90 file:cursor-pointer cursor-pointer flex-1 disabled:opacity-50"
+        />
+      </div>
     </div>
   );
 }
