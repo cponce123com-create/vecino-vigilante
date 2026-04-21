@@ -2,7 +2,9 @@ import { useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, CheckCircle, AlertCircle, Loader2, FileText, Info } from "lucide-react";
-import { useGetStats, customFetch } from "@workspace/api-client-react";
+import { useGetStats } from "@workspace/api-client-react";
+
+const CHUNK_SIZE = 500; // filas por lote
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
@@ -31,6 +33,14 @@ function parseCSV(text: string): Record<string, string>[] {
   });
 }
 
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
 type UploadState = "idle" | "loading" | "success" | "error";
 interface r { chanchamayoEncontrados: number; procesados: number; nuevos: number; actualizados: number; errores: number; }
 
@@ -55,29 +65,80 @@ export default function Admin() {
     });
   }
 
+  async function sendChunk(
+    registrosChunk: Record<string, string>[],
+    partes: Record<string, string>[],
+    adjudicaciones: Record<string, string>[],
+    contratos: Record<string, string>[],
+  ): Promise<r> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (secret) headers["x-sync-secret"] = secret;
+
+    const res = await fetch("/api/sync/csv", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ registros: registrosChunk, partes, adjudicaciones, contratos }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+
+    return res.json() as Promise<r>;
+  }
+
   async function handleUpload() {
     const registrosFile = registrosRef.current?.files?.[0];
     const partesFile = partesRef.current?.files?.[0];
-    if (!registrosFile || !partesFile) { setErrorMsg("Los archivos Registros.csv y Ent_PartesInvolucradas.csv son obligatorios"); setState("error"); return; }
+    if (!registrosFile || !partesFile) {
+      setErrorMsg("Los archivos Registros.csv y Ent_PartesInvolucradas.csv son obligatorios");
+      setState("error");
+      return;
+    }
     setState("loading"); setErrorMsg(""); setResult(null);
+
     try {
       setProgress("Leyendo Registros.csv...");
       const registros = await readFile(registrosFile);
+
       setProgress("Leyendo Ent_PartesInvolucradas.csv...");
       const partes = await readFile(partesFile);
+
       let adjudicaciones: Record<string, string>[] = [];
       let contratos: Record<string, string>[] = [];
-      if (adjRef.current?.files?.[0]) { setProgress("Leyendo Ent_Adjudicaciones.csv..."); adjudicaciones = await readFile(adjRef.current.files[0]); }
-      if (conRef.current?.files?.[0]) { setProgress("Leyendo Ent_Contratos.csv..."); contratos = await readFile(conRef.current.files[0]); }
-      setProgress("Enviando al servidor...");
-      const data = await customFetch<r>("/api/sync/csv", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(secret ? { "x-sync-secret": secret } : {}) },
-        body: JSON.stringify({ registros, partes, adjudicaciones, contratos }),
-      });
-      setResult(data); setState("success"); refetch();
-    } catch (err) { setErrorMsg(String(err)); setState("error"); }
-    finally { setProgress(""); }
+      if (adjRef.current?.files?.[0]) {
+        setProgress("Leyendo Ent_Adjudicaciones.csv...");
+        adjudicaciones = await readFile(adjRef.current.files[0]);
+      }
+      if (conRef.current?.files?.[0]) {
+        setProgress("Leyendo Ent_Contratos.csv...");
+        contratos = await readFile(conRef.current.files[0]);
+      }
+
+      // Enviar registros en lotes para evitar HTTP 413
+      const chunks = chunkArray(registros, CHUNK_SIZE);
+      const totals: r = { chanchamayoEncontrados: 0, procesados: 0, nuevos: 0, actualizados: 0, errores: 0 };
+
+      for (let i = 0; i < chunks.length; i++) {
+        setProgress(`Enviando lote ${i + 1} de ${chunks.length} (${registros.length} registros total)...`);
+        const data = await sendChunk(chunks[i], partes, adjudicaciones, contratos);
+        totals.chanchamayoEncontrados = Math.max(totals.chanchamayoEncontrados, data.chanchamayoEncontrados);
+        totals.procesados += data.procesados;
+        totals.nuevos += data.nuevos;
+        totals.actualizados += data.actualizados;
+        totals.errores += data.errores;
+      }
+
+      setResult(totals);
+      setState("success");
+      refetch();
+    } catch (err) {
+      setErrorMsg(String(err));
+      setState("error");
+    } finally {
+      setProgress("");
+    }
   }
 
   function reset() {
