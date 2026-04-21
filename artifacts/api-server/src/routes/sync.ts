@@ -57,12 +57,13 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
   }
 
   try {
-    const { registros, partes, adjudicaciones, contratos, articulosAdj } = req.body as {
+    const { registros, partes, adjudicaciones, contratos, articulosAdj, ordenes } = req.body as {
       registros: Record<string, string>[];
       partes: Record<string, string>[];
       adjudicaciones: Record<string, string>[];
       contratos: Record<string, string>[];
       articulosAdj?: Record<string, string>[];
+      ordenes?: Record<string, string>[];
     };
 
     if (!registros?.length || !partes?.length) {
@@ -136,7 +137,6 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
         let plazo: number | null = null;
         try { plazo = con.plazo ? Math.round(parseFloat(con.plazo)) : null; } catch { plazo = null; }
 
-        // Mapeo de distritos de Chanchamayo a sus códigos UBIGEO
         const CHANCHAMAYO_MAP: Record<string, string> = {
           "CHANCHAMAYO": "120301",
           "PERENE": "120302",
@@ -179,7 +179,6 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
           .where(eq(contratacionesTable.ocid, ocid))
           .limit(1);
 
-        // Determinar estado real basado en fechas
         let estadoReal = "CONVOCADO";
         if (fechaCon) estadoReal = "CONTRATADO";
         else if (fechaAdj) estadoReal = "ADJUDICADO";
@@ -198,7 +197,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
             montoReferencial: montoRef,
             montoAdjudicado: montoAdj,
             moneda: "PEN",
-            fechaConvocatoria: fechaConv || new Date(), // Fallback a fecha actual si es nula para evitar problemas de ordenamiento
+            fechaConvocatoria: fechaConv || new Date(),
             fechaAdjudicacion: fechaAdj,
             fechaContrato: fechaCon,
             plazoEjecucionDias: plazo,
@@ -230,7 +229,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
     if (articulosAdj && articulosAdj.length > 0) {
       for (const art of articulosAdj) {
         const ocid = art["Open Contracting ID"];
-        if (!procesadosOcids.has(ocid)) continue; // solo artículos de contrataciones procesadas
+        if (!procesadosOcids.has(ocid)) continue;
 
         const id = art["Entrega compilada:Adjudicaciones:Artículos Adjudicados:ID"];
         if (!id) continue;
@@ -258,6 +257,31 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
       }
     }
 
+    // ── Importar órdenes de compra/servicio ──────────────────────────
+    let ordenesImportadas = 0;
+    if (ordenes && ordenes.length > 0) {
+      for (const ord of ordenes) {
+        const ocid = ord["Open Contracting ID"];
+        if (!procesadosOcids.has(ocid)) continue;
+        // Las órdenes enriquecen la contratación con info adicional
+        // Por ahora las contamos y guardamos en rawOcds si la contratación existe
+        try {
+          const fechaOrden = safeDate(ord["Entrega compilada:Contratos:Fecha de firma"] ?? ord["Entrega compilada:Implementación:Transacciones:Fecha"]);
+          const montoOrden = safeDecimal(ord["Entrega compilada:Implementación:Transacciones:Valor:Monto"] ?? ord["Entrega compilada:Contratos:Valor:Monto"]);
+          if (fechaOrden || montoOrden) {
+            await db.update(contratacionesTable).set({
+              ...(fechaOrden && !conMap[ocid]?.fecha ? { fechaContrato: fechaOrden } : {}),
+              ...(montoOrden ? { montoAdjudicado: montoOrden } : {}),
+              estado: "CONTRATADO",
+            }).where(eq(contratacionesTable.ocid, ocid));
+          }
+          ordenesImportadas++;
+        } catch (err) {
+          console.error(`Error importando orden para ${ocid}:`, err);
+        }
+      }
+    }
+
     // Registrar sync log
     await db.insert(syncLogTable).values({
       id: randomUUID(),
@@ -276,6 +300,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
       actualizados,
       errores,
       articulosImportados,
+      ordenesImportadas,
     });
   } catch (err) {
     console.error("CSV upload error:", err);
