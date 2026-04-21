@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, CheckCircle, AlertCircle, Loader2, FileText, Info } from "lucide-react";
 import { useGetStats } from "@workspace/api-client-react";
 
-const CHUNK_SIZE = 500; // filas por lote
+const CHUNK_SIZE = 200; // filas por lote (más pequeño = más seguro)
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
@@ -80,12 +80,21 @@ export default function Admin() {
       body: JSON.stringify({ registros: registrosChunk, partes, adjudicaciones, contratos }),
     });
 
+    const text = await res.text();
+
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`HTTP ${res.status}: ${text}`);
+      throw new Error(`HTTP ${res.status}: ${text || "(respuesta vacía)"}`);
     }
 
-    return res.json() as Promise<r>;
+    if (!text || text.trim() === "") {
+      throw new Error(`El servidor devolvió una respuesta vacía (lote ${CHUNK_SIZE} filas)`);
+    }
+
+    try {
+      return JSON.parse(text) as r;
+    } catch {
+      throw new Error(`Respuesta inválida del servidor: ${text.slice(0, 200)}`);
+    }
   }
 
   async function handleUpload() {
