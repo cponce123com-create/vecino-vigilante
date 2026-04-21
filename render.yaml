@@ -62,9 +62,8 @@ services:
   # ─────────────────────────────────────────────────────────────────
   # FRONTEND — Static Site (React + Vite)
   # ─────────────────────────────────────────────────────────────────
-  - type: web
+  - type: staticSite
     name: vecino-vigilante-web
-    runtime: static
     plan: free
     branch: main
     rootDir: .
