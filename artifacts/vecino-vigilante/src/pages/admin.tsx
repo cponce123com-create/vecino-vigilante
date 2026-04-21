@@ -1,12 +1,25 @@
 import { useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Upload, CheckCircle, AlertCircle, Loader2, FileText, Info } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Upload, CheckCircle, AlertCircle, Loader2, Info, FolderOpen, FileArchive, X } from "lucide-react";
 import { useGetStats } from "@workspace/api-client-react";
-import { apiUrl } from "@/lib/api";
+
+// @ts-ignore — JSZip se carga desde CDN en index.html o se importa aquí
+// Si usas el build de Vite, instala jszip: pnpm add jszip --filter @workspace/vecino-vigilante
+import JSZip from "jszip";
 
 const CHUNK_SIZE = 50;
 const OCID_KEY = "Open Contracting ID";
+
+// Archivos que nos interesan del ZIP (en minúsculas para comparación case-insensitive)
+const ARCHIVOS_NECESARIOS = [
+  "registros.csv",
+  "ent_partesinvolucradas.csv",
+  "ent_adjudicaciones.csv",
+  "ent_contratos.csv",
+  "ent_adj_articulosadjudicados.csv",
+];
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
@@ -42,6 +55,7 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 }
 
 type UploadState = "idle" | "loading" | "success" | "error";
+
 interface SyncResult {
   chanchamayoEncontrados: number;
   procesados: number;
@@ -51,28 +65,79 @@ interface SyncResult {
   articulosImportados?: number;
 }
 
+interface ArchivosDetectados {
+  registros: boolean;
+  partes: boolean;
+  adjudicaciones: boolean;
+  contratos: boolean;
+  articulos: boolean;
+}
+
 export default function Admin() {
   const { data: stats, refetch } = useGetStats();
   const [state, setState] = useState<UploadState>("idle");
   const [result, setResult] = useState<SyncResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [progress, setProgress] = useState("");
-  const registrosRef = useRef<HTMLInputElement>(null);
-  const partesRef = useRef<HTMLInputElement>(null);
-  const adjRef = useRef<HTMLInputElement>(null);
-  const conRef = useRef<HTMLInputElement>(null);
-  const articulosRef = useRef<HTMLInputElement>(null);
+  const [progressPct, setProgressPct] = useState(0);
+  const [archivosDetectados, setArchivosDetectados] = useState<ArchivosDetectados | null>(null);
+  const [nombreArchivo, setNombreArchivo] = useState<string>("");
+  const zipRef = useRef<HTMLInputElement>(null);
+  const csvMultiRef = useRef<HTMLInputElement>(null);
   const secret = import.meta.env.VITE_SYNC_SECRET ?? "";
 
-  async function readFile(file: File): Promise<Record<string, string>[]> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => { try { resolve(parseCSV(e.target?.result as string)); } catch (err) { reject(err); } };
-      reader.onerror = () => reject(new Error("Error leyendo archivo"));
-      reader.readAsText(file, "utf-8");
+  // ── Leer ZIP y extraer CSVs necesarios ──────────────────────────
+  async function leerZip(file: File): Promise<Map<string, Record<string, string>[]>> {
+    setProgress("Descomprimiendo ZIP...");
+    const zip = await JSZip.loadAsync(file);
+    const resultado = new Map<string, Record<string, string>[]>();
+
+    const entradas = Object.keys(zip.files).filter(nombre => {
+      const base = nombre.split("/").pop()?.toLowerCase() ?? "";
+      return ARCHIVOS_NECESARIOS.includes(base);
+    });
+
+    for (let i = 0; i < entradas.length; i++) {
+      const entrada = entradas[i];
+      const base = entrada.split("/").pop()?.toLowerCase() ?? "";
+      setProgress(`Leyendo ${entrada.split("/").pop()} (${i + 1}/${entradas.length})...`);
+      setProgressPct(Math.round(((i + 1) / entradas.length) * 30));
+      const texto = await zip.files[entrada].async("text");
+      resultado.set(base, parseCSV(texto));
+    }
+
+    return resultado;
+  }
+
+  // ── Leer múltiples archivos CSV sueltos ─────────────────────────
+  async function leerCSVsSueltos(files: FileList): Promise<Map<string, Record<string, string>[]>> {
+    const resultado = new Map<string, Record<string, string>[]>();
+    const arr = Array.from(files);
+
+    for (let i = 0; i < arr.length; i++) {
+      const file = arr[i];
+      const base = file.name.toLowerCase();
+      if (!ARCHIVOS_NECESARIOS.includes(base)) continue;
+      setProgress(`Leyendo ${file.name} (${i + 1}/${arr.length})...`);
+      setProgressPct(Math.round(((i + 1) / arr.length) * 30));
+      const texto = await file.text();
+      resultado.set(base, parseCSV(texto));
+    }
+
+    return resultado;
+  }
+
+  function mostrarDetectados(archivos: Map<string, Record<string, string>[]>) {
+    setArchivosDetectados({
+      registros: archivos.has("registros.csv"),
+      partes: archivos.has("ent_partesinvolucradas.csv"),
+      adjudicaciones: archivos.has("ent_adjudicaciones.csv"),
+      contratos: archivos.has("ent_contratos.csv"),
+      articulos: archivos.has("ent_adj_articulosadjudicados.csv"),
     });
   }
 
+  // ── Enviar un lote al backend ────────────────────────────────────
   async function sendChunk(
     registrosChunk: Record<string, string>[],
     partesChunk: Record<string, string>[],
@@ -83,7 +148,7 @@ export default function Admin() {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (secret) headers["x-sync-secret"] = secret;
 
-    const res = await fetch(apiUrl("/api/sync/csv"), {
+    const res = await fetch("/api/sync/csv", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -97,86 +162,101 @@ export default function Admin() {
 
     const text = await res.text();
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text || "(respuesta vacía)"}`);
-    if (!text || text.trim() === "") throw new Error("El servidor no respondió — intenta de nuevo.");
+    if (!text || text.trim() === "") throw new Error("El servidor no respondió. Intenta de nuevo.");
     try { return JSON.parse(text) as SyncResult; }
     catch { throw new Error(`Respuesta inválida: ${text.slice(0, 200)}`); }
   }
 
-  async function handleUpload() {
-    const registrosFile = registrosRef.current?.files?.[0];
-    const partesFile = partesRef.current?.files?.[0];
-    if (!registrosFile || !partesFile) {
-      setErrorMsg("Los archivos Registros.csv y Ent_PartesInvolucradas.csv son obligatorios");
-      setState("error");
-      return;
+  // ── Proceso principal ────────────────────────────────────────────
+  async function procesarArchivos(archivos: Map<string, Record<string, string>[]>) {
+    const registros = archivos.get("registros.csv") ?? [];
+    const partes = archivos.get("ent_partesinvolucradas.csv") ?? [];
+    const adjudicaciones = archivos.get("ent_adjudicaciones.csv") ?? [];
+    const contratos = archivos.get("ent_contratos.csv") ?? [];
+    const articulosAdj = archivos.get("ent_adj_articulosadjudicados.csv") ?? [];
+
+    if (!registros.length || !partes.length) {
+      throw new Error("Faltan archivos obligatorios: Registros.csv y Ent_PartesInvolucradas.csv");
     }
-    setState("loading"); setErrorMsg(""); setResult(null);
 
+    // Indexar por OCID para enviar solo lo relevante por lote
+    const partesIdx = new Map<string, Record<string, string>[]>();
+    for (const p of partes) {
+      const ocid = p[OCID_KEY];
+      if (!partesIdx.has(ocid)) partesIdx.set(ocid, []);
+      partesIdx.get(ocid)!.push(p);
+    }
+    const adjIdx = new Map<string, Record<string, string>>();
+    for (const a of adjudicaciones) adjIdx.set(a[OCID_KEY], a);
+    const conIdx = new Map<string, Record<string, string>>();
+    for (const c of contratos) conIdx.set(c[OCID_KEY], c);
+    const artIdx = new Map<string, Record<string, string>[]>();
+    for (const art of articulosAdj) {
+      const ocid = art[OCID_KEY];
+      if (!artIdx.has(ocid)) artIdx.set(ocid, []);
+      artIdx.get(ocid)!.push(art);
+    }
+
+    const chunks = chunkArray(registros, CHUNK_SIZE);
+    const totals: SyncResult = {
+      chanchamayoEncontrados: 0, procesados: 0, nuevos: 0,
+      actualizados: 0, errores: 0, articulosImportados: 0,
+    };
+
+    for (let i = 0; i < chunks.length; i++) {
+      setProgress(`Enviando lote ${i + 1} de ${chunks.length}...`);
+      setProgressPct(30 + Math.round(((i + 1) / chunks.length) * 70));
+
+      const chunkOcids = new Set(chunks[i].map(r => r[OCID_KEY]));
+      const partesChunk = [...chunkOcids].flatMap(id => partesIdx.get(id) ?? []);
+      const adjChunk = [...chunkOcids].flatMap(id => adjIdx.has(id) ? [adjIdx.get(id)!] : []);
+      const conChunk = [...chunkOcids].flatMap(id => conIdx.has(id) ? [conIdx.get(id)!] : []);
+      const articulosChunk = [...chunkOcids].flatMap(id => artIdx.get(id) ?? []);
+
+      const data = await sendChunk(chunks[i], partesChunk, adjChunk, conChunk, articulosChunk);
+      totals.chanchamayoEncontrados = Math.max(totals.chanchamayoEncontrados, data.chanchamayoEncontrados);
+      totals.procesados += data.procesados;
+      totals.nuevos += data.nuevos;
+      totals.actualizados += data.actualizados;
+      totals.errores += data.errores;
+      totals.articulosImportados! += data.articulosImportados ?? 0;
+    }
+
+    return totals;
+  }
+
+  // ── Handler ZIP ──────────────────────────────────────────────────
+  async function handleZip() {
+    const file = zipRef.current?.files?.[0];
+    if (!file) return;
+    setState("loading"); setErrorMsg(""); setResult(null); setProgressPct(0);
+    setNombreArchivo(file.name);
     try {
-      setProgress("Leyendo Registros.csv...");
-      const registros = await readFile(registrosFile);
+      const archivos = await leerZip(file);
+      mostrarDetectados(archivos);
+      const resultado = await procesarArchivos(archivos);
+      setResult(resultado);
+      setState("success");
+      refetch();
+    } catch (err) {
+      setErrorMsg(String(err));
+      setState("error");
+    } finally {
+      setProgress("");
+    }
+  }
 
-      setProgress("Leyendo Ent_PartesInvolucradas.csv...");
-      const partes = await readFile(partesFile);
-
-      let adjudicaciones: Record<string, string>[] = [];
-      let contratos: Record<string, string>[] = [];
-      let articulosAdj: Record<string, string>[] = [];
-
-      if (adjRef.current?.files?.[0]) {
-        setProgress("Leyendo Ent_Adjudicaciones.csv...");
-        adjudicaciones = await readFile(adjRef.current.files[0]);
-      }
-      if (conRef.current?.files?.[0]) {
-        setProgress("Leyendo Ent_Contratos.csv...");
-        contratos = await readFile(conRef.current.files[0]);
-      }
-      if (articulosRef.current?.files?.[0]) {
-        setProgress("Leyendo Ent_Adj_ArticulosAdjudicados.csv...");
-        articulosAdj = await readFile(articulosRef.current.files[0]);
-      }
-
-      // Indexar por OCID para filtrar por lote
-      const partesIdx = new Map<string, Record<string, string>[]>();
-      for (const p of partes) {
-        const ocid = p[OCID_KEY];
-        if (!partesIdx.has(ocid)) partesIdx.set(ocid, []);
-        partesIdx.get(ocid)!.push(p);
-      }
-      const adjIdx = new Map<string, Record<string, string>>();
-      for (const a of adjudicaciones) adjIdx.set(a[OCID_KEY], a);
-      const conIdx = new Map<string, Record<string, string>>();
-      for (const c of contratos) conIdx.set(c[OCID_KEY], c);
-      // Artículos: puede haber múltiples por OCID
-      const artIdx = new Map<string, Record<string, string>[]>();
-      for (const art of articulosAdj) {
-        const ocid = art[OCID_KEY];
-        if (!artIdx.has(ocid)) artIdx.set(ocid, []);
-        artIdx.get(ocid)!.push(art);
-      }
-
-      const chunks = chunkArray(registros, CHUNK_SIZE);
-      const totals: SyncResult = { chanchamayoEncontrados: 0, procesados: 0, nuevos: 0, actualizados: 0, errores: 0, articulosImportados: 0 };
-
-      for (let i = 0; i < chunks.length; i++) {
-        setProgress(`Enviando lote ${i + 1} de ${chunks.length}...`);
-        const chunkOcids = new Set(chunks[i].map(r => r[OCID_KEY]));
-
-        const partesChunk = [...chunkOcids].flatMap(id => partesIdx.get(id) ?? []);
-        const adjChunk = [...chunkOcids].flatMap(id => adjIdx.has(id) ? [adjIdx.get(id)!] : []);
-        const conChunk = [...chunkOcids].flatMap(id => conIdx.has(id) ? [conIdx.get(id)!] : []);
-        const articulosChunk = [...chunkOcids].flatMap(id => artIdx.get(id) ?? []);
-
-        const data = await sendChunk(chunks[i], partesChunk, adjChunk, conChunk, articulosChunk);
-        totals.chanchamayoEncontrados = Math.max(totals.chanchamayoEncontrados, data.chanchamayoEncontrados);
-        totals.procesados += data.procesados;
-        totals.nuevos += data.nuevos;
-        totals.actualizados += data.actualizados;
-        totals.errores += data.errores;
-        totals.articulosImportados! += data.articulosImportados ?? 0;
-      }
-
-      setResult(totals);
+  // ── Handler CSV sueltos ──────────────────────────────────────────
+  async function handleCSVsSueltos() {
+    const files = csvMultiRef.current?.files;
+    if (!files || files.length === 0) return;
+    setState("loading"); setErrorMsg(""); setResult(null); setProgressPct(0);
+    setNombreArchivo(`${files.length} archivo(s)`);
+    try {
+      const archivos = await leerCSVsSueltos(files);
+      mostrarDetectados(archivos);
+      const resultado = await procesarArchivos(archivos);
+      setResult(resultado);
       setState("success");
       refetch();
     } catch (err) {
@@ -189,11 +269,9 @@ export default function Admin() {
 
   function reset() {
     setState("idle"); setResult(null); setErrorMsg("");
-    if (registrosRef.current) registrosRef.current.value = "";
-    if (partesRef.current) partesRef.current.value = "";
-    if (adjRef.current) adjRef.current.value = "";
-    if (conRef.current) conRef.current.value = "";
-    if (articulosRef.current) articulosRef.current.value = "";
+    setArchivosDetectados(null); setNombreArchivo(""); setProgressPct(0);
+    if (zipRef.current) zipRef.current.value = "";
+    if (csvMultiRef.current) csvMultiRef.current.value = "";
   }
 
   return (
@@ -203,6 +281,7 @@ export default function Admin() {
         <p className="text-muted-foreground mt-2">Carga datos del OECE para Chanchamayo</p>
       </div>
 
+      {/* KPIs */}
       <div className="grid grid-cols-3 gap-4 mb-8">
         {[
           { label: "Contrataciones", value: stats?.totalContrataciones ?? "—" },
@@ -218,6 +297,7 @@ export default function Admin() {
         ))}
       </div>
 
+      {/* Instrucciones */}
       <Card className="mb-6 border-blue-200 bg-blue-50">
         <CardContent className="p-4">
           <div className="flex gap-3">
@@ -226,108 +306,172 @@ export default function Admin() {
               <p className="font-semibold">Cómo obtener los archivos:</p>
               <ol className="list-decimal list-inside space-y-1">
                 <li>Ve a <a href="https://contratacionesabiertas.oece.gob.pe/descargas" target="_blank" rel="noreferrer" className="underline font-medium">contratacionesabiertas.oece.gob.pe/descargas</a></li>
-                <li>Descarga el ZIP del mes (formato <strong>CSV (ES)</strong>)</li>
-                <li>Descomprime y sube los archivos aquí</li>
-                <li>Solo se importarán registros de <strong>Chanchamayo</strong></li>
+                <li>Descarga el ZIP del mes — formato <strong>CSV (ES)</strong></li>
+                <li>Sube el ZIP directamente <strong>sin descomprimir</strong>, o sube todos los CSV sueltos</li>
+                <li>La web detecta automáticamente los archivos que necesita</li>
               </ol>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" /> Cargar archivos CSV
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <FileInput label="Registros.csv" required inputRef={registrosRef} disabled={state === "loading"} />
-          <FileInput label="Ent_PartesInvolucradas.csv" required inputRef={partesRef} disabled={state === "loading"} />
-          <FileInput label="Ent_Adjudicaciones.csv" inputRef={adjRef} disabled={state === "loading"} />
-          <FileInput label="Ent_Contratos.csv" inputRef={conRef} disabled={state === "loading"} />
-          <FileInput label="Ent_Adj_ArticulosAdjudicados.csv" inputRef={articulosRef} disabled={state === "loading"} hint="Nuevo — permite ver el desglose de ítems por contrato" />
+      {state === "idle" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-          {state === "loading" && (
-            <div className="flex items-center gap-3 p-3 bg-muted rounded-lg text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              {progress || "Procesando..."}
-            </div>
-          )}
+          {/* Opción A: ZIP directo */}
+          <Card className="border-2 border-dashed hover:border-primary transition-colors">
+            <CardContent className="p-6 flex flex-col items-center text-center gap-4">
+              <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center">
+                <FileArchive className="h-7 w-7 text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold text-lg">Subir ZIP</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  El archivo ZIP completo del OECE. La web lo descomprime sola.
+                </p>
+              </div>
+              <label className="w-full cursor-pointer">
+                <input
+                  ref={zipRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={handleZip}
+                />
+                <div className="w-full bg-primary text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  Seleccionar ZIP
+                </div>
+              </label>
+            </CardContent>
+          </Card>
 
-          {state === "success" && result && (
-            <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
-              <div className="text-sm text-green-800">
-                <p className="font-semibold mb-1">¡Carga exitosa!</p>
-                <ul className="space-y-0.5">
-                  <li>Chanchamayo encontrados: <strong>{result.chanchamayoEncontrados}</strong></li>
-                  <li>Procesados: <strong>{result.procesados}</strong></li>
-                  <li>Nuevos: <strong>{result.nuevos}</strong></li>
-                  <li>Actualizados: <strong>{result.actualizados}</strong></li>
-                  {(result.articulosImportados ?? 0) > 0 && (
-                    <li>Artículos importados: <strong>{result.articulosImportados}</strong></li>
-                  )}
-                  {result.errores > 0 && (
-                    <li className="text-orange-700">Con errores: <strong>{result.errores}</strong></li>
-                  )}
-                </ul>
+          {/* Opción B: CSV sueltos */}
+          <Card className="border-2 border-dashed hover:border-primary transition-colors">
+            <CardContent className="p-6 flex flex-col items-center text-center gap-4">
+              <div className="w-14 h-14 bg-accent/10 rounded-2xl flex items-center justify-center">
+                <FolderOpen className="h-7 w-7 text-accent" />
+              </div>
+              <div>
+                <p className="font-semibold text-lg">Subir CSVs sueltos</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Selecciona todos los archivos CSV descomprimidos a la vez.
+                </p>
+              </div>
+              <label className="w-full cursor-pointer">
+                <input
+                  ref={csvMultiRef}
+                  type="file"
+                  accept=".csv"
+                  multiple
+                  className="hidden"
+                  onChange={handleCSVsSueltos}
+                />
+                <div className="w-full bg-accent text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-accent/90 transition-colors flex items-center justify-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  Seleccionar CSVs
+                </div>
+              </label>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Loading */}
+      {state === "loading" && (
+        <Card>
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm truncate">{nombreArchivo}</p>
+                <p className="text-sm text-muted-foreground">{progress || "Procesando..."}</p>
               </div>
             </div>
-          )}
+            <Progress value={progressPct} className="h-2" />
+            <p className="text-xs text-muted-foreground text-right">{progressPct}%</p>
 
-          {state === "error" && (
-            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-              <div className="text-sm text-red-800">
-                <p className="font-semibold">Error</p>
-                <p>{errorMsg}</p>
+            {/* Archivos detectados */}
+            {archivosDetectados && (
+              <div className="pt-2 border-t">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Archivos detectados:</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { key: "registros", label: "Registros.csv", req: true },
+                    { key: "partes", label: "Partes involucradas", req: true },
+                    { key: "adjudicaciones", label: "Adjudicaciones", req: false },
+                    { key: "contratos", label: "Contratos", req: false },
+                    { key: "articulos", label: "Artículos adj.", req: false },
+                  ].map(({ key, label, req }) => {
+                    const found = archivosDetectados[key as keyof ArchivosDetectados];
+                    return (
+                      <div key={key} className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded ${found ? "bg-green-50 text-green-700" : req ? "bg-red-50 text-red-600" : "bg-muted text-muted-foreground"}`}>
+                        {found
+                          ? <CheckCircle className="h-3 w-3 shrink-0" />
+                          : req
+                            ? <AlertCircle className="h-3 w-3 shrink-0" />
+                            : <X className="h-3 w-3 shrink-0 opacity-40" />}
+                        {label}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            {(state === "success" || state === "error") ? (
-              <Button onClick={reset} variant="outline">Cargar otro mes</Button>
-            ) : (
-              <Button onClick={handleUpload} disabled={state === "loading"} className="bg-primary hover:bg-primary/90">
-                {state === "loading"
-                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</>
-                  : <><Upload className="mr-2 h-4 w-4" />Importar datos</>}
-              </Button>
             )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
+          </CardContent>
+        </Card>
+      )}
 
-function FileInput({
-  label, required, inputRef, disabled, hint,
-}: {
-  label: string;
-  required?: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
-  disabled: boolean;
-  hint?: string;
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-foreground mb-1">
-        {label}{required && <span className="text-red-500 ml-1">*</span>}
-        {hint && <span className="ml-2 text-xs text-primary font-normal">{hint}</span>}
-      </label>
-      <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors">
-        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".csv"
-          disabled={disabled}
-          className="text-sm text-foreground file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-primary file:text-white hover:file:bg-primary/90 file:cursor-pointer cursor-pointer flex-1 disabled:opacity-50"
-        />
-      </div>
+      {/* Éxito */}
+      {state === "success" && result && (
+        <Card className="border-green-200">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
+              <div>
+                <p className="font-semibold text-green-800 text-lg">¡Carga exitosa!</p>
+                <p className="text-sm text-green-700">{nombreArchivo}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {[
+                { label: "Chanchamayo encontrados", value: result.chanchamayoEncontrados },
+                { label: "Registros procesados", value: result.procesados },
+                { label: "Nuevos", value: result.nuevos },
+                { label: "Actualizados", value: result.actualizados },
+                ...(result.articulosImportados ? [{ label: "Artículos importados", value: result.articulosImportados }] : []),
+                ...(result.errores > 0 ? [{ label: "Con errores", value: result.errores }] : []),
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-green-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-green-800">{value}</p>
+                  <p className="text-xs text-green-600 mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+            <Button onClick={reset} variant="outline" className="w-full">
+              Cargar otro mes
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error */}
+      {state === "error" && (
+        <Card className="border-red-200">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertCircle className="h-6 w-6 text-red-600 shrink-0" />
+              <div>
+                <p className="font-semibold text-red-800">Error al procesar</p>
+                <p className="text-sm text-red-600 mt-1">{errorMsg}</p>
+              </div>
+            </div>
+            <Button onClick={reset} variant="outline" className="w-full">
+              Intentar de nuevo
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
