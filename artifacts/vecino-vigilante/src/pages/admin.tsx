@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, CheckCircle, AlertCircle, Loader2, FileText, Info } from "lucide-react";
 import { useGetStats } from "@workspace/api-client-react";
 
-const CHUNK_SIZE = 200; // filas por lote (más pequeño = más seguro)
+const CHUNK_SIZE = 50; // filas por lote (conservador para límite default de Express)
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
