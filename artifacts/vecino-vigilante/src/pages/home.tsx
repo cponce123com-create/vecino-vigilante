@@ -25,6 +25,7 @@ import { Link } from "wouter";
 import { ContratacionCard } from "@/components/contratacion-card";
 import { MapaChanchamayo } from "@/components/mapa-chanchamayo";
 import { motion } from "framer-motion";
+import { apiUrl } from "@/lib/api";
 
 export default function Home() {
   const { data: stats, isLoading: isLoadingStats } = useGetStats();
@@ -442,8 +443,7 @@ function EmptyState() {
   const handleLoadDemo = async () => {
     setLoading(true);
     try {
-      const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
-      await fetch(`${apiBase}/api/sync/seed-demo`, { method: "POST" });
+      await fetch(apiUrl("/api/sync/seed-demo"), { method: "POST" });
       await queryClient.invalidateQueries();
       setDone(true);
     } catch (e) {

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/formatters";
 import { Download, FileSpreadsheet } from "lucide-react";
+import { apiUrl } from "@/lib/api";
 
 export default function Descargas() {
   const [tipo, setTipo] = useState<string>("");
@@ -19,7 +20,7 @@ export default function Descargas() {
   }, { query: { queryKey: getGetExcelPreviewQueryKey({ tipo, estado, fechaDesde }) } });
 
   const handleDownload = () => {
-    fetch('/api/excel/generate', {
+    fetch(apiUrl('/api/excel/generate'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

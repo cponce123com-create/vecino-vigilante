@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency } from "@/lib/formatters";
 import { Building, TrendingUp, Download, HardHat } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiUrl } from "@/lib/api";
 import { ContratacionCard } from "@/components/contratacion-card";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 
@@ -58,7 +59,7 @@ export default function Distrito() {
         </div>
         <Button className="shrink-0" onClick={() => {
           // Trigger excel download
-          const url = `/api/excel/generate?ubigeo=${distrito.codigo}`;
+          const url = apiUrl(`/api/excel/generate?ubigeo=${distrito.codigo}`);
           window.location.href = url;
         }}>
           <Download className="mr-2 h-4 w-4" />

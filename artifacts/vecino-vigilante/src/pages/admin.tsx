@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, CheckCircle, AlertCircle, Loader2, FileText, Info } from "lucide-react";
 import { useGetStats } from "@workspace/api-client-react";
+import { apiUrl } from "@/lib/api";
 
 const CHUNK_SIZE = 50;
 const OCID_KEY = "Open Contracting ID";
@@ -82,7 +83,7 @@ export default function Admin() {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (secret) headers["x-sync-secret"] = secret;
 
-    const res = await fetch("/api/sync/csv", {
+    const res = await fetch(apiUrl("/api/sync/csv"), {
       method: "POST",
       headers,
       body: JSON.stringify({

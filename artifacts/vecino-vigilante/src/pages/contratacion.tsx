@@ -1,6 +1,7 @@
 import { useRoute } from "wouter";
 import { useGetContratacion, getGetContratacionQueryKey } from "@workspace/api-client-react";
 import { useState, useEffect } from "react";
+import { apiUrl } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { ESTADO_MAPPING, TIPO_MAPPING, PROCEDIMIENTO_MAPPING } from "@/lib/constants";
@@ -35,8 +36,7 @@ function useArticulos(ocid: string) {
   useEffect(() => {
     if (!ocid) return;
     setLoading(true);
-    const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
-    fetch(`${apiBase}/api/contrataciones/${encodeURIComponent(ocid)}/articulos`)
+    fetch(apiUrl(`/api/contrataciones/${encodeURIComponent(ocid)}/articulos`))
       .then((r) => r.json())
       .then((data) => { setArticulos(Array.isArray(data) ? data : []); })
       .catch(() => setArticulos([]))

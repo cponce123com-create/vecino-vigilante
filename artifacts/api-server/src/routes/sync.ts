@@ -72,7 +72,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
 
     // Identificar OCIDs de Chanchamayo desde partes
     const chanchamayoOcids = new Set<string>();
-    const entidadMap: Record<string, { ruc: string; nombre: string }> = {};
+    const entidadMap: Record<string, { ruc: string; nombre: string; distrito: string }> = {};
     const proveedorMap: Record<string, { ruc: string; nombre: string }> = {};
 
     for (const p of partes) {
@@ -81,9 +81,10 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
       const ocid = p["Open Contracting ID"];
       const ruc = p["Entrega compilada:Partes involucradas:Identificador principal:ID"]?.trim();
       const nombre = p["Entrega compilada:Partes involucradas:Nombre común"]?.trim();
+      const distrito = p["Entrega compilada:Partes involucradas:Dirección:Localidad"]?.trim() || "";
 
       if (isChanchamayo(region)) chanchamayoOcids.add(ocid);
-      if (roles.includes("buyer") && ruc) entidadMap[ocid] = { ruc, nombre: nombre || ruc };
+      if (roles.includes("buyer") && ruc) entidadMap[ocid] = { ruc, nombre: nombre || ruc, distrito };
       if (roles.includes("supplier") && ruc && !proveedorMap[ocid]) proveedorMap[ocid] = { ruc, nombre: nombre || ruc };
     }
 
@@ -135,6 +136,17 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
         let plazo: number | null = null;
         try { plazo = con.plazo ? Math.round(parseFloat(con.plazo)) : null; } catch { plazo = null; }
 
+        // Mapeo de distritos de Chanchamayo a sus códigos UBIGEO
+        const CHANCHAMAYO_MAP: Record<string, string> = {
+          "CHANCHAMAYO": "120301",
+          "PERENE": "120302",
+          "PICHANAQUI": "120303",
+          "SAN LUIS DE SHUARO": "120304",
+          "SAN RAMON": "120305",
+          "VITOC": "120306"
+        };
+        const ubigeoCodigo = entidad?.distrito ? (CHANCHAMAYO_MAP[entidad.distrito.toUpperCase()] || null) : null;
+
         // Upsert entidad
         if (entidad && !seenEntidades.has(entidad.ruc)) {
           seenEntidades.add(entidad.ruc);
@@ -143,8 +155,11 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
             nombre: entidad.nombre.slice(0, 500),
             tipo: "MUNICIPALIDAD",
             nivelGobierno: "LOCAL",
-            ubigeoCodigo: null,
-          }).onConflictDoNothing();
+            ubigeoCodigo: ubigeoCodigo,
+          }).onConflictDoUpdate({
+            target: [entidadesTable.ruc],
+            set: { ubigeoCodigo: ubigeoCodigo }
+          });
         }
 
         // Upsert proveedor
@@ -164,6 +179,11 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
           .where(eq(contratacionesTable.ocid, ocid))
           .limit(1);
 
+        // Determinar estado real basado en fechas
+        let estadoReal = "CONVOCADO";
+        if (fechaCon) estadoReal = "CONTRATADO";
+        else if (fechaAdj) estadoReal = "ADJUDICADO";
+
         if (existing.length === 0) {
           await db.insert(contratacionesTable).values({
             ocid,
@@ -171,14 +191,14 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
             descripcion,
             tipo,
             procedimiento,
-            estado: "CONVOCADO",
+            estado: estadoReal,
             entidadRuc: entidad?.ruc ?? null,
             proveedorRuc: proveedor?.ruc ?? null,
-            ubigeoCodigo: null,
+            ubigeoCodigo: ubigeoCodigo,
             montoReferencial: montoRef,
             montoAdjudicado: montoAdj,
             moneda: "PEN",
-            fechaConvocatoria: fechaConv,
+            fechaConvocatoria: fechaConv || new Date(), // Fallback a fecha actual si es nula para evitar problemas de ordenamiento
             fechaAdjudicacion: fechaAdj,
             fechaContrato: fechaCon,
             plazoEjecucionDias: plazo,
@@ -187,7 +207,10 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
           nuevos++;
         } else {
           await db.update(contratacionesTable).set({
+            estado: estadoReal,
+            ubigeoCodigo: ubigeoCodigo,
             montoAdjudicado: montoAdj,
+            fechaConvocatoria: fechaConv || undefined,
             fechaAdjudicacion: fechaAdj,
             fechaContrato: fechaCon,
             proveedorRuc: proveedor?.ruc ?? null,

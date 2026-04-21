@@ -10,6 +10,7 @@ import { Search, Filter, Download, X, LayoutGrid, Table2, ArrowUpDown, ArrowUp, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { ESTADO_MAPPING, TIPO_MAPPING } from "@/lib/constants";
+import { apiUrl } from "@/lib/api";
 
 type Vista = "cards" | "tabla";
 type ColOrden = "fecha" | "monto" | "titulo" | "entidad";
@@ -51,7 +52,7 @@ export default function Explorador() {
   }, { query: { queryKey: getGetContratacionesQueryKey({ q: debouncedQ, tipo, estado, procedimiento, ordenar, page, limit }) } });
 
   const handleDownloadExcel = () => {
-    fetch("/api/excel/generate", {
+    fetch(apiUrl("/api/excel/generate"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
