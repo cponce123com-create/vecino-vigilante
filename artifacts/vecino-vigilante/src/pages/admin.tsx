@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Upload, CheckCircle, AlertCircle, Loader2, FileText, Info } from "lucide-react";
 import { useGetStats } from "@workspace/api-client-react";
 
-const CHUNK_SIZE = 50; // filas por lote (conservador para límite default de Express)
+const CHUNK_SIZE = 50;
+const OCID_KEY = "Open Contracting ID";
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
@@ -35,9 +36,7 @@ function parseCSV(text: string): Record<string, string>[] {
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
   const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
-  }
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
   return chunks;
 }
 
@@ -67,9 +66,9 @@ export default function Admin() {
 
   async function sendChunk(
     registrosChunk: Record<string, string>[],
-    partes: Record<string, string>[],
-    adjudicaciones: Record<string, string>[],
-    contratos: Record<string, string>[],
+    partesChunk: Record<string, string>[],
+    adjChunk: Record<string, string>[],
+    conChunk: Record<string, string>[],
   ): Promise<r> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (secret) headers["x-sync-secret"] = secret;
@@ -77,7 +76,7 @@ export default function Admin() {
     const res = await fetch("/api/sync/csv", {
       method: "POST",
       headers,
-      body: JSON.stringify({ registros: registrosChunk, partes, adjudicaciones, contratos }),
+      body: JSON.stringify({ registros: registrosChunk, partes: partesChunk, adjudicaciones: adjChunk, contratos: conChunk }),
     });
 
     const text = await res.text();
@@ -87,7 +86,7 @@ export default function Admin() {
     }
 
     if (!text || text.trim() === "") {
-      throw new Error(`El servidor devolvió una respuesta vacía (lote ${CHUNK_SIZE} filas)`);
+      throw new Error("El servidor no respondió — intenta de nuevo.");
     }
 
     try {
@@ -125,13 +124,32 @@ export default function Admin() {
         contratos = await readFile(conRef.current.files[0]);
       }
 
-      // Enviar registros en lotes para evitar HTTP 413
+      // Indexar por OCID para filtrar solo las filas del lote actual
+      // Asi cada request al servidor es pequeño y no explota la RAM
+      const partesIdx = new Map<string, Record<string, string>[]>();
+      for (const p of partes) {
+        const ocid = p[OCID_KEY];
+        if (!partesIdx.has(ocid)) partesIdx.set(ocid, []);
+        partesIdx.get(ocid)!.push(p);
+      }
+      const adjIdx = new Map<string, Record<string, string>>();
+      for (const a of adjudicaciones) adjIdx.set(a[OCID_KEY], a);
+      const conIdx = new Map<string, Record<string, string>>();
+      for (const c of contratos) conIdx.set(c[OCID_KEY], c);
+
       const chunks = chunkArray(registros, CHUNK_SIZE);
       const totals: r = { chanchamayoEncontrados: 0, procesados: 0, nuevos: 0, actualizados: 0, errores: 0 };
 
       for (let i = 0; i < chunks.length; i++) {
-        setProgress(`Enviando lote ${i + 1} de ${chunks.length} (${registros.length} registros total)...`);
-        const data = await sendChunk(chunks[i], partes, adjudicaciones, contratos);
+        setProgress(`Enviando lote ${i + 1} de ${chunks.length}...`);
+        const chunkOcids = new Set(chunks[i].map(reg => reg[OCID_KEY]));
+
+        // Solo enviamos las filas relacionadas a los OCIDs de este lote
+        const partesChunk = [...chunkOcids].flatMap(id => partesIdx.get(id) ?? []);
+        const adjChunk = [...chunkOcids].flatMap(id => adjIdx.has(id) ? [adjIdx.get(id)!] : []);
+        const conChunk = [...chunkOcids].flatMap(id => conIdx.has(id) ? [conIdx.get(id)!] : []);
+
+        const data = await sendChunk(chunks[i], partesChunk, adjChunk, conChunk);
         totals.chanchamayoEncontrados = Math.max(totals.chanchamayoEncontrados, data.chanchamayoEncontrados);
         totals.procesados += data.procesados;
         totals.nuevos += data.nuevos;
