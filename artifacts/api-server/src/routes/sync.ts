@@ -4,15 +4,13 @@ import {
   contratacionesTable,
   entidadesTable,
   proveedoresTable,
+  articulosAdjudicadosTable,
   syncLogTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 const router: IRouter = Router();
-
-// Filtrar solo Chanchamayo (provincia 1204xx)
-const CHANCHAMAYO_REGION = "CHANCHAMAYO";
 
 function isChanchamayo(region: string): boolean {
   return region.toUpperCase().includes("CHANCHAMAYO");
@@ -50,14 +48,7 @@ function safeDate(v: string | undefined | null): Date | null {
   } catch { return null; }
 }
 
-function esc(s: string | null | undefined): string {
-  if (!s) return "NULL";
-  return "'" + s.replace(/'/g, "''") + "'";
-}
-
-// ────────────────────────────────────────────────────────────────────
-// POST /api/sync/csv — Carga CSV del OECE desde el browser
-// ────────────────────────────────────────────────────────────────────
+// ── POST /api/sync/csv ───────────────────────────────────────────────
 router.post("/sync/csv", async (req, res): Promise<void> => {
   const secret = process.env.SYNC_SECRET;
   if (secret && req.headers["x-sync-secret"] !== secret) {
@@ -66,11 +57,12 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
   }
 
   try {
-    const { registros, partes, adjudicaciones, contratos } = req.body as {
+    const { registros, partes, adjudicaciones, contratos, articulosAdj } = req.body as {
       registros: Record<string, string>[];
       partes: Record<string, string>[];
       adjudicaciones: Record<string, string>[];
       contratos: Record<string, string>[];
+      articulosAdj?: Record<string, string>[];
     };
 
     if (!registros?.length || !partes?.length) {
@@ -95,7 +87,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
       if (roles.includes("supplier") && ruc && !proveedorMap[ocid]) proveedorMap[ocid] = { ruc, nombre: nombre || ruc };
     }
 
-    // Mapear adjudicaciones y contratos
+    // Mapear adjudicaciones
     const adjMap: Record<string, { monto: string; fecha: string }> = {};
     for (const a of (adjudicaciones ?? [])) {
       const ocid = a["Open Contracting ID"];
@@ -105,6 +97,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
       };
     }
 
+    // Mapear contratos
     const conMap: Record<string, { fecha: string; plazo: string }> = {};
     for (const c of (contratos ?? [])) {
       const ocid = c["Open Contracting ID"];
@@ -120,6 +113,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
     let nuevos = 0, actualizados = 0, errores = 0;
     const seenEntidades = new Set<string>();
     const seenProveedores = new Set<string>();
+    const procesadosOcids = new Set<string>();
 
     for (const reg of chanRegs) {
       const ocid = reg["Open Contracting ID"];
@@ -200,9 +194,44 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
           }).where(eq(contratacionesTable.ocid, ocid));
           actualizados++;
         }
+
+        procesadosOcids.add(ocid);
       } catch (err) {
         console.error(`Error procesando ${ocid}:`, err);
         errores++;
+      }
+    }
+
+    // ── Importar artículos adjudicados ───────────────────────────────
+    let articulosImportados = 0;
+    if (articulosAdj && articulosAdj.length > 0) {
+      for (const art of articulosAdj) {
+        const ocid = art["Open Contracting ID"];
+        if (!procesadosOcids.has(ocid)) continue; // solo artículos de contrataciones procesadas
+
+        const id = art["Entrega compilada:Adjudicaciones:Artículos Adjudicados:ID"];
+        if (!id) continue;
+
+        try {
+          await db.insert(articulosAdjudicadosTable).values({
+            id,
+            ocid,
+            posicion: art["compiledRelease/awards/0/items/0/position"]
+              ? parseInt(art["compiledRelease/awards/0/items/0/position"])
+              : null,
+            descripcion: (art["Entrega compilada:Adjudicaciones:Artículos Adjudicados:Descripción"] || "Sin descripción").slice(0, 500),
+            clasificacionId: art["Entrega compilada:Adjudicaciones:Artículos Adjudicados:Clasificación:ID"] || null,
+            clasificacionDesc: (art["Entrega compilada:Adjudicaciones:Artículos Adjudicados:Clasificación:Descripción"] || null)?.slice(0, 500),
+            cantidad: art["Entrega compilada:Adjudicaciones:Artículos Adjudicados:Cantidad"] || null,
+            unidadNombre: art["Entrega compilada:Adjudicaciones:Artículos Adjudicados:Unidad:Nombre"] || null,
+            montoTotal: art["compiledRelease/awards/0/items/0/totalValue/amount"] || null,
+            moneda: art["compiledRelease/awards/0/items/0/totalValue/currency"] || "PEN",
+            estado: art["compiledRelease/awards/0/items/0/statusDetails"] || null,
+          }).onConflictDoNothing();
+          articulosImportados++;
+        } catch (err) {
+          console.error(`Error importando artículo ${id}:`, err);
+        }
       }
     }
 
@@ -223,6 +252,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
       nuevos,
       actualizados,
       errores,
+      articulosImportados,
     });
   } catch (err) {
     console.error("CSV upload error:", err);
@@ -230,7 +260,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
   }
 });
 
-// GET /api/sync/status
+// ── GET /api/sync/status ─────────────────────────────────────────────
 router.get("/sync/status", async (_req, res): Promise<void> => {
   const lastSync = await db.select().from(syncLogTable)
     .orderBy(syncLogTable.fechaEjecucion).limit(1);
