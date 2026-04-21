@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Upload, CheckCircle, AlertCircle, Loader2, Info, FolderOpen, FileArchive, X } from "lucide-react";
 import { useGetStats } from "@workspace/api-client-react";
+import { apiUrl } from "@/lib/api";
 
 // @ts-ignore — JSZip se carga desde CDN en index.html o se importa aquí
-// Si usas el build de Vite, instala jszip: pnpm add jszip --filter @workspace/vecino-vigilante
 import JSZip from "jszip";
 
 const CHUNK_SIZE = 50;
@@ -19,6 +19,7 @@ const ARCHIVOS_NECESARIOS = [
   "ent_adjudicaciones.csv",
   "ent_contratos.csv",
   "ent_adj_articulosadjudicados.csv",
+  "ent_ordenes.csv",
 ];
 
 function parseCSV(text: string): Record<string, string>[] {
@@ -63,6 +64,7 @@ interface SyncResult {
   actualizados: number;
   errores: number;
   articulosImportados?: number;
+  ordenesImportadas?: number;
 }
 
 interface ArchivosDetectados {
@@ -71,6 +73,7 @@ interface ArchivosDetectados {
   adjudicaciones: boolean;
   contratos: boolean;
   articulos: boolean;
+  ordenes: boolean;
 }
 
 export default function Admin() {
@@ -134,6 +137,7 @@ export default function Admin() {
       adjudicaciones: archivos.has("ent_adjudicaciones.csv"),
       contratos: archivos.has("ent_contratos.csv"),
       articulos: archivos.has("ent_adj_articulosadjudicados.csv"),
+      ordenes: archivos.has("ent_ordenes.csv"),
     });
   }
 
@@ -144,11 +148,12 @@ export default function Admin() {
     adjChunk: Record<string, string>[],
     conChunk: Record<string, string>[],
     articulosChunk: Record<string, string>[],
+    ordenesChunk: Record<string, string>[],
   ): Promise<SyncResult> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (secret) headers["x-sync-secret"] = secret;
 
-    const res = await fetch("/api/sync/csv", {
+    const res = await fetch(apiUrl("/api/sync/csv"), {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -157,6 +162,7 @@ export default function Admin() {
         adjudicaciones: adjChunk,
         contratos: conChunk,
         articulosAdj: articulosChunk,
+        ordenes: ordenesChunk,
       }),
     });
 
@@ -174,6 +180,7 @@ export default function Admin() {
     const adjudicaciones = archivos.get("ent_adjudicaciones.csv") ?? [];
     const contratos = archivos.get("ent_contratos.csv") ?? [];
     const articulosAdj = archivos.get("ent_adj_articulosadjudicados.csv") ?? [];
+    const ordenes = archivos.get("ent_ordenes.csv") ?? [];
 
     if (!registros.length || !partes.length) {
       throw new Error("Faltan archivos obligatorios: Registros.csv y Ent_PartesInvolucradas.csv");
@@ -196,11 +203,17 @@ export default function Admin() {
       if (!artIdx.has(ocid)) artIdx.set(ocid, []);
       artIdx.get(ocid)!.push(art);
     }
+    const ordenesIdx = new Map<string, Record<string, string>[]>();
+    for (const ord of ordenes) {
+      const ocid = ord[OCID_KEY];
+      if (!ordenesIdx.has(ocid)) ordenesIdx.set(ocid, []);
+      ordenesIdx.get(ocid)!.push(ord);
+    }
 
     const chunks = chunkArray(registros, CHUNK_SIZE);
     const totals: SyncResult = {
       chanchamayoEncontrados: 0, procesados: 0, nuevos: 0,
-      actualizados: 0, errores: 0, articulosImportados: 0,
+      actualizados: 0, errores: 0, articulosImportados: 0, ordenesImportadas: 0,
     };
 
     for (let i = 0; i < chunks.length; i++) {
@@ -212,14 +225,16 @@ export default function Admin() {
       const adjChunk = [...chunkOcids].flatMap(id => adjIdx.has(id) ? [adjIdx.get(id)!] : []);
       const conChunk = [...chunkOcids].flatMap(id => conIdx.has(id) ? [conIdx.get(id)!] : []);
       const articulosChunk = [...chunkOcids].flatMap(id => artIdx.get(id) ?? []);
+      const ordenesChunk = [...chunkOcids].flatMap(id => ordenesIdx.get(id) ?? []);
 
-      const data = await sendChunk(chunks[i], partesChunk, adjChunk, conChunk, articulosChunk);
+      const data = await sendChunk(chunks[i], partesChunk, adjChunk, conChunk, articulosChunk, ordenesChunk);
       totals.chanchamayoEncontrados = Math.max(totals.chanchamayoEncontrados, data.chanchamayoEncontrados);
       totals.procesados += data.procesados;
       totals.nuevos += data.nuevos;
       totals.actualizados += data.actualizados;
       totals.errores += data.errores;
       totals.articulosImportados! += data.articulosImportados ?? 0;
+      totals.ordenesImportadas! += data.ordenesImportadas ?? 0;
     }
 
     return totals;
@@ -402,6 +417,7 @@ export default function Admin() {
                     { key: "adjudicaciones", label: "Adjudicaciones", req: false },
                     { key: "contratos", label: "Contratos", req: false },
                     { key: "articulos", label: "Artículos adj.", req: false },
+                    { key: "ordenes", label: "Órdenes de compra/servicio", req: false },
                   ].map(({ key, label, req }) => {
                     const found = archivosDetectados[key as keyof ArchivosDetectados];
                     return (
@@ -440,6 +456,7 @@ export default function Admin() {
                 { label: "Nuevos", value: result.nuevos },
                 { label: "Actualizados", value: result.actualizados },
                 ...(result.articulosImportados ? [{ label: "Artículos importados", value: result.articulosImportados }] : []),
+                ...(result.ordenesImportadas ? [{ label: "Órdenes importadas", value: result.ordenesImportadas }] : []),
                 ...(result.errores > 0 ? [{ label: "Con errores", value: result.errores }] : []),
               ].map(({ label, value }) => (
                 <div key={label} className="bg-green-50 rounded-lg p-3 text-center">
