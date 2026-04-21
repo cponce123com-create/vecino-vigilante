@@ -2,15 +2,11 @@ import { useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, CheckCircle, AlertCircle, Loader2, FileText, Info } from "lucide-react";
-import { useGetStats } from "@workspace/api-client-react";
-import { formatCurrency } from "@/lib/formatters";
+import { useGetStats, customFetch } from "@workspace/api-client-react";
 
-// Parsea un CSV a array de objetos usando la primera fila como headers
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
   if (lines.length < 2) return [];
-  
-  // Handle quoted fields
   function parseLine(line: string): string[] {
     const result: string[] = [];
     let current = "";
@@ -18,7 +14,7 @@ function parseCSV(text: string): Record<string, string>[] {
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
       if (ch === '"' && !inQuotes) { inQuotes = true; }
-      else if (ch === '"' && inQuotes && line[i+1] === '"') { current += '"'; i++; }
+      else if (ch === '"' && inQuotes && line[i + 1] === '"') { current += '"'; i++; }
       else if (ch === '"' && inQuotes) { inQuotes = false; }
       else if (ch === ',' && !inQuotes) { result.push(current); current = ""; }
       else { current += ch; }
@@ -26,7 +22,6 @@ function parseCSV(text: string): Record<string, string>[] {
     result.push(current);
     return result;
   }
-
   const headers = parseLine(lines[0]);
   return lines.slice(1).filter(l => l.trim()).map(line => {
     const values = parseLine(line);
@@ -37,40 +32,24 @@ function parseCSV(text: string): Record<string, string>[] {
 }
 
 type UploadState = "idle" | "loading" | "success" | "error";
-
-interface Result {
-  chanchamayoEncontrados: number;
-  procesados: number;
-  nuevos: number;
-  actualizados: number;
-  errores: number;
-}
+interface r { chanchamayoEncontrados: number; procesados: number; nuevos: number; actualizados: number; errores: number; }
 
 export default function Admin() {
   const { data: stats, refetch } = useGetStats();
   const [state, setState] = useState<UploadState>("idle");
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<r | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [progress, setProgress] = useState("");
-
-  // Refs para los 4 archivos
   const registrosRef = useRef<HTMLInputElement>(null);
   const partesRef = useRef<HTMLInputElement>(null);
   const adjRef = useRef<HTMLInputElement>(null);
   const conRef = useRef<HTMLInputElement>(null);
-
-  const apiBase = import.meta.env.VITE_API_BASE_URL ?? "";
   const secret = import.meta.env.VITE_SYNC_SECRET ?? "";
 
   async function readFile(file: File): Promise<Record<string, string>[]> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const text = e.target?.result as string;
-          resolve(parseCSV(text));
-        } catch (err) { reject(err); }
-      };
+      reader.onload = (e) => { try { resolve(parseCSV(e.target?.result as string)); } catch (err) { reject(err); } };
       reader.onerror = () => reject(new Error("Error leyendo archivo"));
       reader.readAsText(file, "utf-8");
     });
@@ -79,65 +58,30 @@ export default function Admin() {
   async function handleUpload() {
     const registrosFile = registrosRef.current?.files?.[0];
     const partesFile = partesRef.current?.files?.[0];
-
-    if (!registrosFile || !partesFile) {
-      setErrorMsg("Los archivos Registros.csv y Ent_PartesInvolucradas.csv son obligatorios");
-      setState("error");
-      return;
-    }
-
-    setState("loading");
-    setErrorMsg("");
-    setResult(null);
-
+    if (!registrosFile || !partesFile) { setErrorMsg("Los archivos Registros.csv y Ent_PartesInvolucradas.csv son obligatorios"); setState("error"); return; }
+    setState("loading"); setErrorMsg(""); setResult(null);
     try {
       setProgress("Leyendo Registros.csv...");
       const registros = await readFile(registrosFile);
-
       setProgress("Leyendo Ent_PartesInvolucradas.csv...");
       const partes = await readFile(partesFile);
-
       let adjudicaciones: Record<string, string>[] = [];
       let contratos: Record<string, string>[] = [];
-
-      if (adjRef.current?.files?.[0]) {
-        setProgress("Leyendo Ent_Adjudicaciones.csv...");
-        adjudicaciones = await readFile(adjRef.current.files[0]);
-      }
-      if (conRef.current?.files?.[0]) {
-        setProgress("Leyendo Ent_Contratos.csv...");
-        contratos = await readFile(conRef.current.files[0]);
-      }
-
-      setProgress(`Enviando ${registros.length} registros al servidor...`);
-
-      const res = await fetch(`${apiBase}/api/sync/csv`, {
+      if (adjRef.current?.files?.[0]) { setProgress("Leyendo Ent_Adjudicaciones.csv..."); adjudicaciones = await readFile(adjRef.current.files[0]); }
+      if (conRef.current?.files?.[0]) { setProgress("Leyendo Ent_Contratos.csv..."); contratos = await readFile(conRef.current.files[0]); }
+      setProgress("Enviando al servidor...");
+      const data = await customFetch<r>("/api/sync/csv", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(secret ? { "x-sync-secret": secret } : {}),
-        },
+        headers: { "Content-Type": "application/json", ...(secret ? { "x-sync-secret": secret } : {}) },
         body: JSON.stringify({ registros, partes, adjudicaciones, contratos }),
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Error del servidor");
-
-      setResult(data);
-      setState("success");
-      refetch();
-    } catch (err) {
-      setErrorMsg(String(err));
-      setState("error");
-    } finally {
-      setProgress("");
-    }
+      setResult(data); setState("success"); refetch();
+    } catch (err) { setErrorMsg(String(err)); setState("error"); }
+    finally { setProgress(""); }
   }
 
   function reset() {
-    setState("idle");
-    setResult(null);
-    setErrorMsg("");
+    setState("idle"); setResult(null); setErrorMsg("");
     if (registrosRef.current) registrosRef.current.value = "";
     if (partesRef.current) partesRef.current.value = "";
     if (adjRef.current) adjRef.current.value = "";
@@ -147,88 +91,54 @@ export default function Admin() {
   return (
     <div className="container mx-auto px-4 py-10 max-w-3xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-serif font-bold text-accent">Panel de Administración</h1>
+        <h1 className="text-3xl font-serif font-bold text-accent">Panel de Administraci&#243;n</h1>
         <p className="text-muted-foreground mt-2">Carga datos del OECE para Chanchamayo</p>
       </div>
-
-      {/* Stats actuales */}
       <div className="grid grid-cols-3 gap-4 mb-8">
         {[
-          { label: "Contrataciones", value: stats?.totalContrataciones ?? "—" },
-          { label: "Entidades", value: stats?.entidadesActivas ?? "—" },
-          { label: "Proveedores", value: stats?.proveedoresUnicos ?? "—" },
+          { label: "Contrataciones", value: stats?.totalContrataciones ?? "\u2014" },
+          { label: "Entidades", value: stats?.entidadesActivas ?? "\u2014" },
+          { label: "Proveedores", value: stats?.proveedoresUnicos ?? "\u2014" },
         ].map(({ label, value }) => (
-          <Card key={label}>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-accent">{value}</p>
-              <p className="text-sm text-muted-foreground">{label}</p>
-            </CardContent>
-          </Card>
+          <Card key={label}><CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-accent">{value}</p>
+            <p className="text-sm text-muted-foreground">{label}</p>
+          </CardContent></Card>
         ))}
       </div>
-
-      {/* Instrucciones */}
       <Card className="mb-6 border-blue-200 bg-blue-50">
         <CardContent className="p-4">
           <div className="flex gap-3">
             <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
             <div className="text-sm text-blue-800 space-y-1">
-              <p className="font-semibold">Cómo obtener los archivos:</p>
+              <p className="font-semibold">C&#243;mo obtener los archivos:</p>
               <ol className="list-decimal list-inside space-y-1">
                 <li>Ve a <a href="https://contratacionesabiertas.oece.gob.pe/descargas" target="_blank" rel="noreferrer" className="underline font-medium">contratacionesabiertas.oece.gob.pe/descargas</a></li>
-                <li>Descarga el ZIP del mes que quieras (formato <strong>CSV (ES)</strong>)</li>
-                <li>Descomprime el ZIP y sube los 4 archivos aquí</li>
-                <li>Solo se importarán los registros de <strong>Chanchamayo</strong></li>
+                <li>Descarga el ZIP del mes (formato <strong>CSV (ES)</strong>)</li>
+                <li>Descomprime y sube los archivos aqu&#237;</li>
+                <li>Solo se importar&#225;n registros de <strong>Chanchamayo</strong></li>
               </ol>
             </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Upload form */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            Cargar archivos CSV
-          </CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" />Cargar archivos CSV</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <FileInput
-            label="Registros.csv"
-            required
-            inputRef={registrosRef}
-            disabled={state === "loading"}
-          />
-          <FileInput
-            label="Ent_PartesInvolucradas.csv"
-            required
-            inputRef={partesRef}
-            disabled={state === "loading"}
-          />
-          <FileInput
-            label="Ent_Adjudicaciones.csv"
-            inputRef={adjRef}
-            disabled={state === "loading"}
-          />
-          <FileInput
-            label="Ent_Contratos.csv"
-            inputRef={conRef}
-            disabled={state === "loading"}
-          />
-
+          <FileInput label="Registros.csv" required inputRef={registrosRef} disabled={state === "loading"} />
+          <FileInput label="Ent_PartesInvolucradas.csv" required inputRef={partesRef} disabled={state === "loading"} />
+          <FileInput label="Ent_Adjudicaciones.csv" inputRef={adjRef} disabled={state === "loading"} />
+          <FileInput label="Ent_Contratos.csv" inputRef={conRef} disabled={state === "loading"} />
           {state === "loading" && (
             <div className="flex items-center gap-3 p-3 bg-muted rounded-lg text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              {progress || "Procesando..."}
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />{progress || "Procesando..."}
             </div>
           )}
-
           {state === "success" && result && (
             <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
               <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
               <div className="text-sm text-green-800">
-                <p className="font-semibold mb-1">¡Carga exitosa!</p>
+                <p className="font-semibold mb-1">&#161;Carga exitosa!</p>
                 <ul className="space-y-0.5">
                   <li>Chanchamayo encontrados: <strong>{result.chanchamayoEncontrados}</strong></li>
                   <li>Procesados: <strong>{result.procesados}</strong></li>
@@ -239,31 +149,18 @@ export default function Admin() {
               </div>
             </div>
           )}
-
           {state === "error" && (
             <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
               <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-              <div className="text-sm text-red-800">
-                <p className="font-semibold">Error</p>
-                <p>{errorMsg}</p>
-              </div>
+              <div className="text-sm text-red-800"><p className="font-semibold">Error</p><p>{errorMsg}</p></div>
             </div>
           )}
-
           <div className="flex gap-3 pt-2">
-            {state === "success" || state === "error" ? (
+            {(state === "success" || state === "error") ? (
               <Button onClick={reset} variant="outline">Cargar otro mes</Button>
             ) : (
-              <Button
-                onClick={handleUpload}
-                disabled={state === "loading"}
-                className="bg-primary hover:bg-primary/90"
-              >
-                {state === "loading" ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</>
-                ) : (
-                  <><Upload className="mr-2 h-4 w-4" />Importar datos</>
-                )}
+              <Button onClick={handleUpload} disabled={state === "loading"} className="bg-primary hover:bg-primary/90">
+                {state === "loading" ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : <><Upload className="mr-2 h-4 w-4" />Importar datos</>}
               </Button>
             )}
           </div>
@@ -273,32 +170,16 @@ export default function Admin() {
   );
 }
 
-function FileInput({
-  label,
-  required,
-  inputRef,
-  disabled,
-}: {
-  label: string;
-  required?: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
-  disabled: boolean;
-}) {
+function FileInput({ label, required, inputRef, disabled }: { label: string; required?: boolean; inputRef: React.RefObject<HTMLInputElement>; disabled: boolean; }) {
   return (
     <div>
       <label className="block text-sm font-medium text-foreground mb-1">
-        {label}
-        {required && <span className="text-red-500 ml-1">*</span>}
+        {label}{required && <span className="text-red-500 ml-1">*</span>}
       </label>
       <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors">
         <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".csv"
-          disabled={disabled}
-          className="text-sm text-foreground file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-primary file:text-white hover:file:bg-primary/90 file:cursor-pointer cursor-pointer flex-1 disabled:opacity-50"
-        />
+        <input ref={inputRef} type="file" accept=".csv" disabled={disabled}
+          className="text-sm text-foreground file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-primary file:text-white hover:file:bg-primary/90 file:cursor-pointer cursor-pointer flex-1 disabled:opacity-50" />
       </div>
     </div>
   );
