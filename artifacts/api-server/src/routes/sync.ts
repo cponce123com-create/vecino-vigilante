@@ -11,10 +11,10 @@ import { eq, desc, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import https from "https";
 import http from "http";
-import { createWriteStream, existsSync, mkdirSync, unlinkSync, readFileSync } from "fs";
+import { createWriteStream, unlinkSync, createReadStream } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import AdmZip from "adm-zip";
+import unzipper from "unzipper";
 
 const router: IRouter = Router();
 
@@ -354,20 +354,31 @@ router.post("/sync/auto", async (req, res): Promise<void> => {
       return;
     }
 
-    // Leer ZIP y extraer CSVs
+    // Leer ZIP y extraer CSVs usando unzipper (streaming)
     console.log(`[auto-sync] Descomprimiendo ${tmpPath}`);
-    const zip = new AdmZip(tmpPath);
     const ARCHIVOS_NECESARIOS = ["registros.csv", "ent_partesinvolucradas.csv", "ent_adjudicaciones.csv", "ent_contratos.csv", "ent_adj_articulosadjudicados.csv", "ent_ordenes.csv", "ent_observaciones.csv"];
     const csvMap = new Map<string, Record<string, string>[]>();
 
-    for (const entry of zip.getEntries()) {
-      const base = entry.entryName.split("/").pop()?.toLowerCase() ?? "";
-      if (ARCHIVOS_NECESARIOS.includes(base)) {
-        const texto = entry.getData().toString("utf8");
-        csvMap.set(base, parseCSV(texto));
-        console.log(`[auto-sync] Leído ${base}: ${csvMap.get(base)!.length} filas`);
-      }
-    }
+    await new Promise<void>((resolve, reject) => {
+      createReadStream(tmpPath)
+        .pipe(unzipper.Parse({ forceStream: true }))
+        .on("entry", (entry: any) => {
+          const base = entry.path.split("/").pop()?.toLowerCase() ?? "";
+          if (ARCHIVOS_NECESARIOS.includes(base)) {
+            const chunks: Buffer[] = [];
+            entry.on("data", (chunk: Buffer) => chunks.push(chunk));
+            entry.on("end", () => {
+              const texto = Buffer.concat(chunks).toString("utf8");
+              csvMap.set(base, parseCSV(texto));
+              console.log(`[auto-sync] Leído ${base}: ${csvMap.get(base)!.length} filas`);
+            });
+          } else {
+            entry.autodrain();
+          }
+        })
+        .on("finish", resolve)
+        .on("error", reject);
+    });
 
     // Limpiar temporal
     try { unlinkSync(tmpPath); } catch { /* ignorar */ }
