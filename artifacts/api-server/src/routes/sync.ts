@@ -427,15 +427,19 @@ router.post("/sync/reset", async (req, res): Promise<void> => {
   }
 
   try {
-    // Usamos SQL raw para evitar cualquier validación de schema de Drizzle.
-    // El orden respeta las FK: primero tablas hijas, luego padres.
-    await db.execute(sql`DELETE FROM articulos_adjudicados`);
-    await db.execute(sql`DELETE FROM contrataciones`);
-    await db.execute(sql`DELETE FROM proveedores`);
-    await db.execute(sql`DELETE FROM entidades`);
-    await db.execute(sql`DELETE FROM sync_log`);
+    // TRUNCATE CASCADE borra todo en una sola operación atómica,
+    // ignorando el orden de FK y sin necesidad de desactivar constraints.
+    await db.execute(sql`
+      TRUNCATE TABLE 
+        articulos_adjudicados,
+        contrataciones,
+        proveedores,
+        entidades,
+        sync_log
+      RESTART IDENTITY CASCADE
+    `);
 
-    // Asegurarnos que las columnas nuevas existen (si no se ejecutó la migración)
+    // Asegurar columnas nuevas en sync_log (idempotente)
     await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS anio INTEGER`);
     await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS mes INTEGER`);
     await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS nombre_archivo TEXT`);
@@ -447,7 +451,8 @@ router.post("/sync/reset", async (req, res): Promise<void> => {
     });
   } catch (err) {
     console.error("reset error:", err);
-    res.status(500).json({ error: "Error durante el reset", message: String(err) });
+    // Devolvemos el mensaje completo para que el frontend lo muestre
+    res.status(500).json({ error: String(err), message: String(err) });
   }
 });
 
