@@ -1,18 +1,21 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Upload, CheckCircle, AlertCircle, Loader2, Info, FolderOpen, FileArchive, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Upload, CheckCircle, AlertCircle, Loader2, Info,
+  FolderOpen, FileArchive, X, Calendar, ChevronDown, ChevronUp,
+} from "lucide-react";
 import { useGetStats } from "@workspace/api-client-react";
 import { apiUrl } from "@/lib/api";
 
-// @ts-ignore — JSZip se carga desde CDN en index.html o se importa aquí
+// @ts-ignore
 import JSZip from "jszip";
 
 const CHUNK_SIZE = 50;
 const OCID_KEY = "Open Contracting ID";
 
-// Archivos que nos interesan del ZIP (en minúsculas para comparación case-insensitive)
 const ARCHIVOS_NECESARIOS = [
   "registros.csv",
   "ent_partesinvolucradas.csv",
@@ -21,6 +24,11 @@ const ARCHIVOS_NECESARIOS = [
   "ent_adj_articulosadjudicados.csv",
   "ent_ordenes.csv",
   "ent_observaciones.csv",
+];
+
+const MESES_ES = [
+  "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
 ];
 
 function parseCSV(text: string): Record<string, string>[] {
@@ -67,16 +75,24 @@ interface SyncResult {
   articulosImportados?: number;
   ordenesImportadas?: number;
   observacionesImportadas?: number;
+  periodo?: string | null;
 }
 
 interface ArchivosDetectados {
-  registros: boolean;
-  partes: boolean;
-  adjudicaciones: boolean;
-  contratos: boolean;
-  articulos: boolean;
-  ordenes: boolean;
-  observaciones: boolean;
+  registros: boolean; partes: boolean; adjudicaciones: boolean;
+  contratos: boolean; articulos: boolean; ordenes: boolean; observaciones: boolean;
+}
+
+interface PeriodoImportado {
+  id: string;
+  fechaEjecucion: string;
+  anio: number | null;
+  mes: number | null;
+  nombreArchivo: string | null;
+  registrosProcesados: number | null;
+  registrosNuevos: number | null;
+  registrosActualizados: number | null;
+  estado: string | null;
 }
 
 export default function Admin() {
@@ -88,21 +104,38 @@ export default function Admin() {
   const [progressPct, setProgressPct] = useState(0);
   const [archivosDetectados, setArchivosDetectados] = useState<ArchivosDetectados | null>(null);
   const [nombreArchivo, setNombreArchivo] = useState<string>("");
+  const [periodos, setPeriodos] = useState<PeriodoImportado[]>([]);
+  const [loadingPeriodos, setLoadingPeriodos] = useState(false);
+  const [showPeriodos, setShowPeriodos] = useState(true);
   const zipRef = useRef<HTMLInputElement>(null);
   const csvMultiRef = useRef<HTMLInputElement>(null);
   const secret = import.meta.env.VITE_SYNC_SECRET ?? "";
 
-  // ── Leer ZIP y extraer CSVs necesarios ──────────────────────────
+  useEffect(() => { cargarHistorial(); }, []);
+
+  async function cargarHistorial() {
+    setLoadingPeriodos(true);
+    try {
+      const res = await fetch(apiUrl("/api/sync/history"));
+      if (res.ok) {
+        const data = await res.json();
+        setPeriodos(data.periodos ?? []);
+      }
+    } catch (e) {
+      console.error("Error cargando historial:", e);
+    } finally {
+      setLoadingPeriodos(false);
+    }
+  }
+
   async function leerZip(file: File): Promise<Map<string, Record<string, string>[]>> {
     setProgress("Descomprimiendo ZIP...");
     const zip = await JSZip.loadAsync(file);
     const resultado = new Map<string, Record<string, string>[]>();
-
     const entradas = Object.keys(zip.files).filter(nombre => {
       const base = nombre.split("/").pop()?.toLowerCase() ?? "";
       return ARCHIVOS_NECESARIOS.includes(base);
     });
-
     for (let i = 0; i < entradas.length; i++) {
       const entrada = entradas[i];
       const base = entrada.split("/").pop()?.toLowerCase() ?? "";
@@ -111,15 +144,12 @@ export default function Admin() {
       const texto = await zip.files[entrada].async("text");
       resultado.set(base, parseCSV(texto));
     }
-
     return resultado;
   }
 
-  // ── Leer múltiples archivos CSV sueltos ─────────────────────────
   async function leerCSVsSueltos(files: FileList): Promise<Map<string, Record<string, string>[]>> {
     const resultado = new Map<string, Record<string, string>[]>();
     const arr = Array.from(files);
-
     for (let i = 0; i < arr.length; i++) {
       const file = arr[i];
       const base = file.name.toLowerCase();
@@ -129,7 +159,6 @@ export default function Admin() {
       const texto = await file.text();
       resultado.set(base, parseCSV(texto));
     }
-
     return resultado;
   }
 
@@ -145,7 +174,6 @@ export default function Admin() {
     });
   }
 
-  // ── Enviar un lote al backend ────────────────────────────────────
   async function sendChunk(
     registrosChunk: Record<string, string>[],
     partesChunk: Record<string, string>[],
@@ -154,10 +182,10 @@ export default function Admin() {
     articulosChunk: Record<string, string>[],
     ordenesChunk: Record<string, string>[],
     observacionesChunk: Record<string, string>[],
+    archivoNombre: string,
   ): Promise<SyncResult> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (secret) headers["x-sync-secret"] = secret;
-
     const res = await fetch(apiUrl("/api/sync/csv"), {
       method: "POST",
       headers,
@@ -169,9 +197,9 @@ export default function Admin() {
         articulosAdj: articulosChunk,
         ordenes: ordenesChunk,
         observaciones: observacionesChunk,
+        nombreArchivo: archivoNombre,  // <-- nuevo campo
       }),
     });
-
     const text = await res.text();
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text || "(respuesta vacía)"}`);
     if (!text || text.trim() === "") throw new Error("El servidor no respondió. Intenta de nuevo.");
@@ -179,8 +207,7 @@ export default function Admin() {
     catch { throw new Error(`Respuesta inválida: ${text.slice(0, 200)}`); }
   }
 
-  // ── Proceso principal ────────────────────────────────────────────
-  async function procesarArchivos(archivos: Map<string, Record<string, string>[]>) {
+  async function procesarArchivos(archivos: Map<string, Record<string, string>[]>, archivoNombre: string) {
     const registros = archivos.get("registros.csv") ?? [];
     const partes = archivos.get("ent_partesinvolucradas.csv") ?? [];
     const adjudicaciones = archivos.get("ent_adjudicaciones.csv") ?? [];
@@ -193,7 +220,6 @@ export default function Admin() {
       throw new Error("Faltan archivos obligatorios: Registros.csv y Ent_PartesInvolucradas.csv");
     }
 
-    // Indexar por OCID para enviar solo lo relevante por lote
     const partesIdx = new Map<string, Record<string, string>[]>();
     for (const p of partes) {
       const ocid = p[OCID_KEY];
@@ -226,8 +252,8 @@ export default function Admin() {
     const chunks = chunkArray(registros, CHUNK_SIZE);
     const totals: SyncResult = {
       chanchamayoEncontrados: 0, procesados: 0, nuevos: 0,
-      actualizados: 0, errores: 0, articulosImportados: 0, ordenesImportadas: 0,
-      observacionesImportadas: 0,
+      actualizados: 0, errores: 0, articulosImportados: 0,
+      ordenesImportadas: 0, observacionesImportadas: 0,
     };
 
     for (let i = 0; i < chunks.length; i++) {
@@ -242,7 +268,10 @@ export default function Admin() {
       const ordenesChunk = [...chunkOcids].flatMap(id => ordenesIdx.get(id) ?? []);
       const obsChunk = [...chunkOcids].flatMap(id => obsIdx.get(id) ?? []);
 
-      const data = await sendChunk(chunks[i], partesChunk, adjChunk, conChunk, articulosChunk, ordenesChunk, obsChunk);
+      const data = await sendChunk(
+        chunks[i], partesChunk, adjChunk, conChunk, articulosChunk, ordenesChunk, obsChunk,
+        archivoNombre,
+      );
       totals.chanchamayoEncontrados = Math.max(totals.chanchamayoEncontrados, data.chanchamayoEncontrados);
       totals.procesados += data.procesados;
       totals.nuevos += data.nuevos;
@@ -251,12 +280,11 @@ export default function Admin() {
       totals.articulosImportados! += data.articulosImportados ?? 0;
       totals.ordenesImportadas! += data.ordenesImportadas ?? 0;
       totals.observacionesImportadas! += data.observacionesImportadas ?? 0;
+      if (data.periodo) totals.periodo = data.periodo;
     }
-
     return totals;
   }
 
-  // ── Handler ZIP ──────────────────────────────────────────────────
   async function handleZip() {
     const file = zipRef.current?.files?.[0];
     if (!file) return;
@@ -265,19 +293,16 @@ export default function Admin() {
     try {
       const archivos = await leerZip(file);
       mostrarDetectados(archivos);
-      const resultado = await procesarArchivos(archivos);
+      const resultado = await procesarArchivos(archivos, file.name);
       setResult(resultado);
       setState("success");
       refetch();
+      cargarHistorial();
     } catch (err) {
-      setErrorMsg(String(err));
-      setState("error");
-    } finally {
-      setProgress("");
-    }
+      setErrorMsg(String(err)); setState("error");
+    } finally { setProgress(""); }
   }
 
-  // ── Handler CSV sueltos ──────────────────────────────────────────
   async function handleCSVsSueltos() {
     const files = csvMultiRef.current?.files;
     if (!files || files.length === 0) return;
@@ -286,16 +311,14 @@ export default function Admin() {
     try {
       const archivos = await leerCSVsSueltos(files);
       mostrarDetectados(archivos);
-      const resultado = await procesarArchivos(archivos);
+      const resultado = await procesarArchivos(archivos, Array.from(files).map(f => f.name).join(", "));
       setResult(resultado);
       setState("success");
       refetch();
+      cargarHistorial();
     } catch (err) {
-      setErrorMsg(String(err));
-      setState("error");
-    } finally {
-      setProgress("");
-    }
+      setErrorMsg(String(err)); setState("error");
+    } finally { setProgress(""); }
   }
 
   function reset() {
@@ -328,6 +351,76 @@ export default function Admin() {
         ))}
       </div>
 
+      {/* ── Historial de períodos importados ─────────────────────────── */}
+      <Card className="mb-6">
+        <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowPeriodos(!showPeriodos)}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-primary" />
+              <CardTitle className="text-base">Períodos importados</CardTitle>
+              {periodos.length > 0 && (
+                <Badge variant="secondary" className="text-xs">{periodos.length}</Badge>
+              )}
+            </div>
+            {showPeriodos ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </div>
+        </CardHeader>
+        {showPeriodos && (
+          <CardContent className="pt-0">
+            {loadingPeriodos ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Cargando historial...
+              </div>
+            ) : periodos.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2 text-center">
+                Aún no se ha importado ningún período.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {/* Agrupar por año */}
+                {(() => {
+                  const porAnio: Record<number, PeriodoImportado[]> = {};
+                  for (const p of periodos) {
+                    const a = p.anio ?? 0;
+                    if (!porAnio[a]) porAnio[a] = [];
+                    porAnio[a].push(p);
+                  }
+                  return Object.entries(porAnio)
+                    .sort(([a], [b]) => Number(b) - Number(a))
+                    .map(([anio, items]) => (
+                      <div key={anio}>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                          {anio === "0" ? "Período desconocido" : anio}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {items.map(item => (
+                            <div
+                              key={item.id}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border
+                                ${item.estado === "OK"
+                                  ? "bg-green-50 border-green-200 text-green-800"
+                                  : "bg-yellow-50 border-yellow-200 text-yellow-800"}`}
+                              title={`${item.nombreArchivo ?? ""}\nProcesados: ${item.registrosProcesados ?? 0} | Nuevos: ${item.registrosNuevos ?? 0} | Actualizados: ${item.registrosActualizados ?? 0}`}
+                            >
+                              {item.estado === "OK"
+                                ? <CheckCircle className="h-3 w-3 shrink-0" />
+                                : <AlertCircle className="h-3 w-3 shrink-0" />}
+                              {item.mes ? MESES_ES[item.mes] : "Sin fecha"}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                })()}
+                <p className="text-xs text-muted-foreground pt-1">
+                  Verde = carga sin errores · Amarillo = carga parcial (algunos registros fallaron)
+                </p>
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
       {/* Instrucciones */}
       <Card className="mb-6 border-blue-200 bg-blue-50">
         <CardContent className="p-4">
@@ -340,7 +433,7 @@ export default function Admin() {
                   <li>Ve a <a href="https://contratacionesabiertas.oece.gob.pe/descargas" target="_blank" rel="noreferrer" className="underline font-medium">contratacionesabiertas.oece.gob.pe/descargas</a></li>
                   <li>Descarga el ZIP del mes — formato <strong>CSV (ES)</strong></li>
                   <li>Sube el ZIP directamente <strong>sin descomprimir</strong>, o sube todos los CSV sueltos</li>
-                  <li>La web detecta automáticamente todos los archivos (incluyendo órdenes y observaciones)</li>
+                  <li>La web detecta automáticamente todos los archivos</li>
                 </ol>
               </div>
               <div className="border-t border-blue-200 pt-2">
@@ -360,8 +453,6 @@ export default function Admin() {
 
       {state === "idle" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-          {/* Opción A: ZIP directo */}
           <Card className="border-2 border-dashed hover:border-primary transition-colors">
             <CardContent className="p-6 flex flex-col items-center text-center gap-4">
               <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center">
@@ -369,27 +460,17 @@ export default function Admin() {
               </div>
               <div>
                 <p className="font-semibold text-lg">Subir ZIP</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  El archivo ZIP completo del OECE. La web lo descomprime sola.
-                </p>
+                <p className="text-sm text-muted-foreground mt-1">El archivo ZIP completo del OECE. La web lo descomprime sola.</p>
               </div>
               <label className="w-full cursor-pointer">
-                <input
-                  ref={zipRef}
-                  type="file"
-                  accept=".zip"
-                  className="hidden"
-                  onChange={handleZip}
-                />
+                <input ref={zipRef} type="file" accept=".zip" className="hidden" onChange={handleZip} />
                 <div className="w-full bg-primary text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
-                  <Upload className="h-4 w-4" />
-                  Seleccionar ZIP
+                  <Upload className="h-4 w-4" /> Seleccionar ZIP
                 </div>
               </label>
             </CardContent>
           </Card>
 
-          {/* Opción B: CSV sueltos */}
           <Card className="border-2 border-dashed hover:border-primary transition-colors">
             <CardContent className="p-6 flex flex-col items-center text-center gap-4">
               <div className="w-14 h-14 bg-accent/10 rounded-2xl flex items-center justify-center">
@@ -397,22 +478,12 @@ export default function Admin() {
               </div>
               <div>
                 <p className="font-semibold text-lg">Subir CSVs sueltos</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Selecciona todos los archivos CSV descomprimidos a la vez.
-                </p>
+                <p className="text-sm text-muted-foreground mt-1">Selecciona todos los archivos CSV descomprimidos a la vez.</p>
               </div>
               <label className="w-full cursor-pointer">
-                <input
-                  ref={csvMultiRef}
-                  type="file"
-                  accept=".csv"
-                  multiple
-                  className="hidden"
-                  onChange={handleCSVsSueltos}
-                />
+                <input ref={csvMultiRef} type="file" accept=".csv" multiple className="hidden" onChange={handleCSVsSueltos} />
                 <div className="w-full bg-accent text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-accent/90 transition-colors flex items-center justify-center gap-2">
-                  <Upload className="h-4 w-4" />
-                  Seleccionar CSVs
+                  <Upload className="h-4 w-4" /> Seleccionar CSVs
                 </div>
               </label>
             </CardContent>
@@ -420,7 +491,6 @@ export default function Admin() {
         </div>
       )}
 
-      {/* Loading */}
       {state === "loading" && (
         <Card>
           <CardContent className="p-6 space-y-4">
@@ -433,8 +503,6 @@ export default function Admin() {
             </div>
             <Progress value={progressPct} className="h-2" />
             <p className="text-xs text-muted-foreground text-right">{progressPct}%</p>
-
-            {/* Archivos detectados */}
             {archivosDetectados && (
               <div className="pt-2 border-t">
                 <p className="text-xs font-medium text-muted-foreground mb-2">Archivos detectados:</p>
@@ -451,11 +519,7 @@ export default function Admin() {
                     const found = archivosDetectados[key as keyof ArchivosDetectados];
                     return (
                       <div key={key} className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded ${found ? "bg-green-50 text-green-700" : req ? "bg-red-50 text-red-600" : "bg-muted text-muted-foreground"}`}>
-                        {found
-                          ? <CheckCircle className="h-3 w-3 shrink-0" />
-                          : req
-                            ? <AlertCircle className="h-3 w-3 shrink-0" />
-                            : <X className="h-3 w-3 shrink-0 opacity-40" />}
+                        {found ? <CheckCircle className="h-3 w-3 shrink-0" /> : req ? <AlertCircle className="h-3 w-3 shrink-0" /> : <X className="h-3 w-3 shrink-0 opacity-40" />}
                         {label}
                       </div>
                     );
@@ -467,7 +531,6 @@ export default function Admin() {
         </Card>
       )}
 
-      {/* Éxito */}
       {state === "success" && result && (
         <Card className="border-green-200">
           <CardContent className="p-6">
@@ -476,6 +539,11 @@ export default function Admin() {
               <div>
                 <p className="font-semibold text-green-800 text-lg">¡Carga exitosa!</p>
                 <p className="text-sm text-green-700">{nombreArchivo}</p>
+                {result.periodo && (
+                  <p className="text-xs text-green-600 mt-0.5 font-medium">
+                    Período: {(() => { const [a, m] = result.periodo!.split("-"); return `${MESES_ES[parseInt(m)]} ${a}`; })()}
+                  </p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3 mb-4">
@@ -489,20 +557,23 @@ export default function Admin() {
                 ...(result.observacionesImportadas ? [{ label: "Observaciones importadas", value: result.observacionesImportadas }] : []),
                 ...(result.errores > 0 ? [{ label: "Con errores", value: result.errores }] : []),
               ].map(({ label, value }) => (
-                <div key={label} className="bg-green-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-green-800">{value}</p>
-                  <p className="text-xs text-green-600 mt-0.5">{label}</p>
+                <div key={label} className={`rounded-lg p-3 text-center ${label === "Con errores" ? "bg-yellow-50" : "bg-green-50"}`}>
+                  <p className={`text-2xl font-bold ${label === "Con errores" ? "text-yellow-800" : "text-green-800"}`}>{value}</p>
+                  <p className={`text-xs mt-0.5 ${label === "Con errores" ? "text-yellow-600" : "text-green-600"}`}>{label}</p>
                 </div>
               ))}
             </div>
-            <Button onClick={reset} variant="outline" className="w-full">
-              Cargar otro mes
-            </Button>
+            {result.errores > 0 && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-xs text-yellow-800">
+                <strong>Nota:</strong> Los {result.errores} registros con error fueron omitidos pero el resto se importó correctamente.
+                Esto suele ocurrir por RUCs inválidos o datos incompletos en el archivo fuente.
+              </div>
+            )}
+            <Button onClick={reset} variant="outline" className="w-full">Cargar otro mes</Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Error */}
       {state === "error" && (
         <Card className="border-red-200">
           <CardContent className="p-6">
@@ -513,9 +584,7 @@ export default function Admin() {
                 <p className="text-sm text-red-600 mt-1">{errorMsg}</p>
               </div>
             </div>
-            <Button onClick={reset} variant="outline" className="w-full">
-              Intentar de nuevo
-            </Button>
+            <Button onClick={reset} variant="outline" className="w-full">Intentar de nuevo</Button>
           </CardContent>
         </Card>
       )}
