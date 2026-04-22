@@ -11,10 +11,10 @@ import { eq, desc, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import https from "https";
 import http from "http";
-import { createWriteStream, unlinkSync, createReadStream } from "fs";
+import { createWriteStream, unlinkSync, readFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import unzipper from "unzipper";
+import { execFile } from "child_process";
 
 const router: IRouter = Router();
 
@@ -354,34 +354,40 @@ router.post("/sync/auto", async (req, res): Promise<void> => {
       return;
     }
 
-    // Leer ZIP y extraer CSVs usando unzipper (streaming)
+    // Extraer ZIP usando el comando `unzip` del sistema (disponible en Linux/Render)
     console.log(`[auto-sync] Descomprimiendo ${tmpPath}`);
+    const extractDir = `${tmpPath}_extracted`;
+    mkdirSync(extractDir, { recursive: true });
+
+    await new Promise<void>((resolve, reject) => {
+      execFile("unzip", ["-o", tmpPath, "-d", extractDir], (err, stdout, stderr) => {
+        if (err) { reject(new Error(`unzip falló: ${stderr || err.message}`)); return; }
+        resolve();
+      });
+    });
+
+    // Limpiar ZIP temporal
+    try { unlinkSync(tmpPath); } catch { /* ignorar */ }
+
     const ARCHIVOS_NECESARIOS = ["registros.csv", "ent_partesinvolucradas.csv", "ent_adjudicaciones.csv", "ent_contratos.csv", "ent_adj_articulosadjudicados.csv", "ent_ordenes.csv", "ent_observaciones.csv"];
     const csvMap = new Map<string, Record<string, string>[]>();
 
-    await new Promise<void>((resolve, reject) => {
-      createReadStream(tmpPath)
-        .pipe(unzipper.Parse({ forceStream: true }))
-        .on("entry", (entry: any) => {
-          const base = entry.path.split("/").pop()?.toLowerCase() ?? "";
-          if (ARCHIVOS_NECESARIOS.includes(base)) {
-            const chunks: Buffer[] = [];
-            entry.on("data", (chunk: Buffer) => chunks.push(chunk));
-            entry.on("end", () => {
-              const texto = Buffer.concat(chunks).toString("utf8");
-              csvMap.set(base, parseCSV(texto));
-              console.log(`[auto-sync] Leído ${base}: ${csvMap.get(base)!.length} filas`);
-            });
-          } else {
-            entry.autodrain();
-          }
-        })
-        .on("finish", resolve)
-        .on("error", reject);
-    });
+    // Buscar los CSV recursivamente dentro del directorio extraído
+    const { execSync } = await import("child_process");
+    const findOutput = execSync(`find "${extractDir}" -type f -iname "*.csv"`, { encoding: "utf8" });
+    const csvFiles = findOutput.trim().split("\n").filter(Boolean);
 
-    // Limpiar temporal
-    try { unlinkSync(tmpPath); } catch { /* ignorar */ }
+    for (const filePath of csvFiles) {
+      const base = filePath.split("/").pop()?.toLowerCase() ?? "";
+      if (ARCHIVOS_NECESARIOS.includes(base)) {
+        const texto = readFileSync(filePath, "utf8");
+        csvMap.set(base, parseCSV(texto));
+        console.log(`[auto-sync] Leído ${base}: ${csvMap.get(base)!.length} filas`);
+      }
+    }
+
+    // Limpiar directorio extraído
+    try { rmSync(extractDir, { recursive: true, force: true }); } catch { /* ignorar */ }
 
     // Importar
     console.log(`[auto-sync] Importando datos para ${anio}-${mesStr}`);
