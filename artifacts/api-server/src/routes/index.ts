@@ -8,6 +8,8 @@ import statsRouter from "./stats";
 import observatorioRouter from "./observatorio";
 import excelRouter from "./excel";
 import syncRouter from "./sync";
+import pndaRouter from "./pnda";
+
 
 const router: IRouter = Router();
 
@@ -20,5 +22,6 @@ router.use(statsRouter);
 router.use(observatorioRouter);
 router.use(excelRouter);
 router.use(syncRouter);
+router.use(pndaRouter);
 
 export default router;
