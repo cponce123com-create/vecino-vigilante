@@ -356,7 +356,7 @@ router.post("/sync/auto", async (req, res): Promise<void> => {
     }
 
     // URL del ZIP en el portal OECE
-    const url = `https://contratacionesabiertas.oece.gob.pe/downloads/${nombreArchivo}`;
+    const url = `https://contratacionesabiertas.oece.gob.pe/api/v1/file/seace_v3/csv/${anio}/${mesStr}/es`;
     console.log(`[auto-sync] Descargando ${url}`);
 
     // Descargar a archivo temporal
