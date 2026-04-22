@@ -105,14 +105,25 @@ function parseCSV(text: string): Record<string, string>[] {
 }
 
 // ── Descarga un ZIP desde una URL a un archivo temporal ───────────────
-function downloadFile(url: string, dest: string): Promise<void> {
+function downloadFile(url: string, dest: string, redirectCount = 0): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (redirectCount > 5) { reject(new Error("Demasiados redirects")); return; }
     const file = createWriteStream(dest);
     const protocol = url.startsWith("https") ? https : http;
-    const request = protocol.get(url, (response) => {
-      if (response.statusCode === 301 || response.statusCode === 302) {
+    const options = {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/zip,application/octet-stream,*/*",
+        "Accept-Language": "es-PE,es;q=0.9",
+        "Referer": "https://contratacionesabiertas.oece.gob.pe/descargas",
+      }
+    };
+    const request = protocol.get(url, options, (response) => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode!)) {
         file.close();
-        downloadFile(response.headers.location!, dest).then(resolve).catch(reject);
+        const location = response.headers.location!;
+        const nextUrl = location.startsWith("http") ? location : new URL(location, url).toString();
+        downloadFile(nextUrl, dest, redirectCount + 1).then(resolve).catch(reject);
         return;
       }
       if (response.statusCode !== 200) {
@@ -124,7 +135,7 @@ function downloadFile(url: string, dest: string): Promise<void> {
       file.on("finish", () => file.close(() => resolve()));
     });
     request.on("error", (err) => { file.close(); reject(err); });
-    request.setTimeout(120000, () => { request.destroy(); reject(new Error("Timeout descargando ZIP")); });
+    request.setTimeout(180000, () => { request.destroy(); reject(new Error("Timeout descargando ZIP (180s)")); });
   });
 }
 
@@ -364,7 +375,7 @@ router.post("/sync/auto", async (req, res): Promise<void> => {
     try {
       await downloadFile(url, tmpPath);
     } catch (err) {
-      res.status(404).json({ error: `No se pudo descargar ${nombreArchivo}. El OECE aún no ha publicado ese mes, o la URL cambió.`, detalle: String(err) });
+      res.status(404).json({ error: `No se pudo descargar el archivo del OECE.\nURL intentada: ${url}\nDetalle: ${String(err)}` });
       return;
     }
 
