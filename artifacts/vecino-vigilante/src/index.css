@@ -165,3 +165,91 @@
     @apply font-serif;
   }
 }
+
+/*
+ * ──────────────────────────────────────────────────────────────────
+ * COMPATIBILIDAD CON CHROME ANTIGUO (< 111)
+ *
+ * Tailwind v4 usa oklch() internamente. En Chrome < 111 oklch no se
+ * interpreta, dejando los colores sin resolver y el texto puede
+ * aparecer blanco sobre blanco (o invisible).
+ *
+ * Estrategia:
+ *  1. color-scheme: light → evita que el navegador active dark-mode
+ *     automático (que pone texto blanco sobre fondo oscuro).
+ *  2. Redefinimos las variables CSS críticas con valores hsl() puros
+ *     que funcionan desde Chrome 49.
+ *  3. Añadimos reglas directas en body/html como red de seguridad.
+ * ──────────────────────────────────────────────────────────────────
+ */
+
+/* 1. Forzar siempre modo claro, sin importar preferencias del SO */
+:root,
+html {
+  color-scheme: light !important;
+}
+
+/* 2. Sobreescribir las variables de color de Tailwind v4
+      con equivalentes hsl() seguros para todos los Chrome */
+:root {
+  --color-background:          hsl(60, 20%, 97%) !important;
+  --color-foreground:          hsl(0, 0%, 10%)   !important;
+  --color-border:              hsl(240, 6%, 90%) !important;
+  --color-input:               hsl(240, 6%, 90%) !important;
+  --color-ring:                hsl(350, 85%, 42%) !important;
+  --color-card:                hsl(0, 0%, 100%)  !important;
+  --color-card-foreground:     hsl(0, 0%, 10%)   !important;
+  --color-popover:             hsl(0, 0%, 100%)  !important;
+  --color-popover-foreground:  hsl(0, 0%, 10%)   !important;
+  --color-primary:             hsl(350, 85%, 42%) !important;
+  --color-primary-foreground:  hsl(0, 0%, 100%)  !important;
+  --color-secondary:           hsl(240, 6%, 96%) !important;
+  --color-secondary-foreground:hsl(0, 0%, 10%)   !important;
+  --color-muted:               hsl(240, 6%, 96%) !important;
+  --color-muted-foreground:    hsl(240, 5%, 34%) !important;
+  --color-accent:              hsl(215, 55%, 24%) !important;
+  --color-accent-foreground:   hsl(0, 0%, 100%)  !important;
+  --color-destructive:         hsl(359, 45%, 51%) !important;
+  --color-destructive-foreground: hsl(0, 0%, 100%) !important;
+  --color-sidebar:             hsl(0, 0%, 100%)  !important;
+  --color-sidebar-foreground:  hsl(0, 0%, 10%)   !important;
+}
+
+/* 3. Red de seguridad: colores fijos en los elementos base */
+html {
+  background-color: #f9f8f5;
+  color: #1a1a1a;
+}
+body {
+  background-color: #f9f8f5 !important;
+  color: #1a1a1a !important;
+}
+
+/* Clases críticas usadas por Shadcn/UI y los componentes propios */
+.text-foreground        { color: #1a1a1a !important; }
+.text-accent            { color: #1e3a5f !important; }
+.text-primary           { color: #c0192a !important; }
+.text-muted-foreground  { color: #56565f !important; }
+.text-white             { color: #ffffff !important; }
+.text-card-foreground   { color: #1a1a1a !important; }
+.text-popover-foreground{ color: #1a1a1a !important; }
+
+.bg-background  { background-color: #f9f8f5 !important; }
+.bg-primary     { background-color: #c0192a !important; }
+.bg-accent      { background-color: #1e3a5f !important; }
+.bg-muted       { background-color: #f1f1f4 !important; }
+.bg-white       { background-color: #ffffff !important; }
+.bg-card        { background-color: #ffffff !important; }
+.bg-secondary   { background-color: #f1f1f4 !important; }
+.bg-background\/30  { background-color: rgba(249,248,245,.30) !important; }
+.bg-muted\/30   { background-color: rgba(241,241,244,.30) !important; }
+.bg-muted\/50   { background-color: rgba(241,241,244,.50) !important; }
+.bg-primary\/5  { background-color: rgba(192,25,42,.05) !important; }
+.bg-primary\/10 { background-color: rgba(192,25,42,.10) !important; }
+
+.border-border  { border-color: #e4e4e9 !important; }
+.border-input   { border-color: #e4e4e9 !important; }
+
+/* Fondo de la página (sticky header y footer) */
+header.sticky   { background-color: #ffffff !important; }
+footer          { background-color: #ffffff !important; }
