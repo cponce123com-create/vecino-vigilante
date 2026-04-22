@@ -58,4 +58,8 @@ export type GetContratacionesParams = {
    * @nullable
    */
   ordenar?: GetContratacionesOrdenar;
+  /**
+   * @nullable
+   */
+  observada?: string | null;
 };

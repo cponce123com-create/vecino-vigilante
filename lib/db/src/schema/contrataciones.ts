@@ -23,6 +23,7 @@ export const contratacionesTable = pgTable("contrataciones", {
   fechaAdjudicacion: timestamp("fecha_adjudicacion", { withTimezone: true }),
   fechaContrato: timestamp("fecha_contrato", { withTimezone: true }),
   plazoEjecucionDias: integer("plazo_ejecucion_dias"),
+  observacionesCount: integer("observaciones_count").default(0),
   rawOcds: jsonb("raw_ocds"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().$onUpdate(() => new Date()),

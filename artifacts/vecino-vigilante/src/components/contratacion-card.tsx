@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { Contratacion } from "@workspace/api-client-react";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { ESTADO_MAPPING, TIPO_MAPPING, PROCEDIMIENTO_MAPPING } from "@/lib/constants";
-import { Building, MapPin, Calendar, FileText, AlertTriangle } from "lucide-react";
+import { Building, MapPin, Calendar, FileText, AlertTriangle, Eye } from "lucide-react";
 
 export function ContratacionCard({ contratacion }: { contratacion: Contratacion }) {
   const getBadgeVariant = (estado?: string | null) => {
@@ -72,12 +72,20 @@ export function ContratacionCard({ contratacion }: { contratacion: Contratacion 
                 {formatCurrency(contratacion.montoReferencial)}
               </span>
             </div>
-            {hasAlert && (
-              <Badge variant="destructive" className="bg-alerta text-white border-transparent">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                Sin competencia
-              </Badge>
-            )}
+            <div className="flex flex-col items-end gap-1">
+              {hasAlert && (
+                <Badge variant="destructive" className="bg-alerta text-white border-transparent">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Sin competencia
+                </Badge>
+              )}
+              {(contratacion.observacionesCount ?? 0) > 0 && (
+                <Badge variant="outline" className="border-orange-400 bg-orange-50 text-orange-700">
+                  <Eye className="h-3 w-3 mr-1" />
+                  {contratacion.observacionesCount} obs.
+                </Badge>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -102,6 +102,10 @@ paths:
           schema:
             type: ["string", "null"]
             enum: ["fecha_desc", "fecha_asc", "monto_desc", "monto_asc", null]
+        - name: observada
+          in: query
+          schema:
+            type: ["string", "null"]
       responses:
         "200":
           description: Lista paginada de contrataciones
@@ -408,6 +412,34 @@ paths:
                 items:
                   $ref: "#/components/schemas/AlertaContratacion"
 
+  /observatorio/observadas:
+    get:
+      operationId: getObservadas
+      tags: [observatorio]
+      summary: Contrataciones con observaciones formales registradas
+      parameters:
+        - name: ubigeo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Lista paginada de contrataciones observadas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObservadasResponse"
+
   /excel/preview:
     get:
       operationId: getExcelPreview
@@ -535,6 +567,8 @@ components:
         fechaContrato:
           type: ["string", "null"]
         plazoEjecucionDias:
+          type: ["integer", "null"]
+        observacionesCount:
           type: ["integer", "null"]
         createdAt:
           type: ["string", "null"]
@@ -952,6 +986,61 @@ components:
         - totalRegistros
         - entidadesUnicas
         - proveedoresUnicos
+
+    ContratacionObservada:
+      type: object
+      properties:
+        ocid:
+          type: string
+        titulo:
+          type: string
+        tipo:
+          type: ["string", "null"]
+        procedimiento:
+          type: ["string", "null"]
+        estado:
+          type: ["string", "null"]
+        observacionesCount:
+          type: ["integer", "null"]
+        montoReferencial:
+          type: ["number", "null"]
+        montoAdjudicado:
+          type: ["number", "null"]
+        fechaConvocatoria:
+          type: ["string", "null"]
+        entidadNombre:
+          type: ["string", "null"]
+        entidadRuc:
+          type: ["string", "null"]
+        ubigeoDistrito:
+          type: ["string", "null"]
+        ubigeoCodigo:
+          type: ["string", "null"]
+      required:
+        - ocid
+        - titulo
+
+    ObservadasResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContratacionObservada"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        pages:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+        - pages
 
     SyncResult:
       type: object

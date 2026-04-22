@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, contratacionesTable, entidadesTable, proveedoresTable, ubigeosTable, articulosAdjudicadosTable } from "@workspace/db";
-import { eq, and, gte, lte, ilike, sql, desc, asc, or } from "drizzle-orm";
+import { eq, and, gte, lte, ilike, sql, desc, asc, or, gt } from "drizzle-orm";
 import {
   GetContratacionesQueryParams,
   GetContratacionParams,
@@ -20,6 +20,7 @@ function buildContratacionFilters(params: {
   montoMin?: number | null;
   montoMax?: number | null;
   q?: string | null;
+  observada?: boolean | null;
 }) {
   const conditions = [];
   if (params.ubigeo) conditions.push(eq(contratacionesTable.ubigeoCodigo, params.ubigeo));
@@ -32,6 +33,7 @@ function buildContratacionFilters(params: {
   if (params.fechaHasta) conditions.push(lte(contratacionesTable.fechaConvocatoria, new Date(params.fechaHasta)));
   if (params.montoMin != null) conditions.push(gte(sql`CAST(${contratacionesTable.montoAdjudicado} AS DECIMAL)`, params.montoMin));
   if (params.montoMax != null) conditions.push(lte(sql`CAST(${contratacionesTable.montoAdjudicado} AS DECIMAL)`, params.montoMax));
+  if (params.observada === true) conditions.push(gt(contratacionesTable.observacionesCount, 0));
   if (params.q) {
     conditions.push(
       or(
@@ -52,8 +54,9 @@ router.get("/contrataciones", async (req, res): Promise<void> => {
   const { page = 1, limit = 20, ubigeo, tipo, estado, procedimiento, entidadRuc, proveedorRuc,
     fechaDesde, fechaHasta, montoMin, montoMax, q, ordenar } = parsed.data;
 
+  const observada = (req.query.observada === "true") ? true : null;
   const where = buildContratacionFilters({ ubigeo, tipo, estado, procedimiento, entidadRuc,
-    proveedorRuc, fechaDesde, fechaHasta, montoMin, montoMax, q });
+    proveedorRuc, fechaDesde, fechaHasta, montoMin, montoMax, q, observada });
 
   const orderBy = (() => {
     switch (ordenar) {
@@ -89,6 +92,7 @@ router.get("/contrataciones", async (req, res): Promise<void> => {
         fechaAdjudicacion: contratacionesTable.fechaAdjudicacion,
         fechaContrato: contratacionesTable.fechaContrato,
         plazoEjecucionDias: contratacionesTable.plazoEjecucionDias,
+        observacionesCount: contratacionesTable.observacionesCount,
         createdAt: contratacionesTable.createdAt,
         updatedAt: contratacionesTable.updatedAt,
       })

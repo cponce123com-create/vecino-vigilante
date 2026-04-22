@@ -48,6 +48,8 @@ export interface Contratacion {
   /** @nullable */
   plazoEjecucionDias?: number | null;
   /** @nullable */
+  observacionesCount?: number | null;
+  /** @nullable */
   createdAt?: string | null;
   /** @nullable */
   updatedAt?: string | null;

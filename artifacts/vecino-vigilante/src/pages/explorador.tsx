@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
-import { Search, Filter, Download, X, LayoutGrid, Table2, ArrowUpDown, ArrowUp, ArrowDown, ExternalLink } from "lucide-react";
+import { Search, Filter, Download, X, LayoutGrid, Table2, ArrowUpDown, ArrowUp, ArrowDown, ExternalLink, Eye } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { ESTADO_MAPPING, TIPO_MAPPING } from "@/lib/constants";
@@ -21,6 +21,7 @@ export default function Explorador() {
   const [tipo, setTipo] = useState<string>("");
   const [estado, setEstado] = useState<string>("");
   const [procedimiento, setProcedimiento] = useState<string>("");
+  const [soloObservadas, setSoloObservadas] = useState(false);
   const [ordenar, setOrdenar] = useState<string>("");
   const [page, setPage] = useState(1);
   const [vista, setVista] = useState<Vista>("cards");
@@ -36,10 +37,10 @@ export default function Explorador() {
 
   const handleReset = () => {
     setQ(""); setDebouncedQ(""); setTipo(""); setEstado("");
-    setProcedimiento(""); setOrdenar(""); setPage(1);
+    setProcedimiento(""); setOrdenar(""); setSoloObservadas(false); setPage(1);
   };
 
-  const hayFiltros = debouncedQ || tipo || estado || procedimiento;
+  const hayFiltros = debouncedQ || tipo || estado || procedimiento || soloObservadas;
 
   const { data, isLoading } = useGetContrataciones({
     q: debouncedQ || undefined,
@@ -47,9 +48,10 @@ export default function Explorador() {
     estado: estado && estado !== "todos" ? estado : undefined,
     procedimiento: procedimiento && procedimiento !== "todos" ? procedimiento : undefined,
     ordenar: ordenar && ordenar !== "default" ? ordenar as "fecha_asc" | "monto_desc" | "monto_asc" : undefined,
+    observada: soloObservadas ? "true" : undefined,
     page,
     limit,
-  }, { query: { queryKey: getGetContratacionesQueryKey({ q: debouncedQ, tipo, estado, procedimiento, ordenar, page, limit }) } });
+  }, { query: { queryKey: getGetContratacionesQueryKey({ q: debouncedQ, tipo, estado, procedimiento, ordenar: ordenar && ordenar !== "default" ? ordenar as "fecha_asc" | "monto_desc" | "monto_asc" : undefined, observada: soloObservadas ? "true" : undefined, page, limit }) } });
 
   const handleDownloadExcel = () => {
     fetch(apiUrl("/api/excel/generate"), {
@@ -174,6 +176,16 @@ export default function Explorador() {
           </form>
         </div>
 
+        {/* Filtro rápido: Observadas */}
+        <button
+          onClick={() => { setSoloObservadas(v => !v); setPage(1); }}
+          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors ${soloObservadas ? "bg-orange-50 border-orange-400 text-orange-700" : "bg-background border-border text-muted-foreground hover:border-orange-300 hover:text-orange-600"}`}
+        >
+          <Eye className="h-4 w-4 shrink-0" />
+          <span>Solo con observaciones</span>
+          {soloObservadas && <X className="h-3 w-3 ml-auto" />}
+        </button>
+
         <Button variant="outline" className="w-full text-primary border-primary hover:bg-primary hover:text-white" onClick={handleDownloadExcel}>
           <Download className="mr-2 h-4 w-4" /> Exportar a Excel
         </Button>
@@ -241,6 +253,12 @@ export default function Explorador() {
             {procedimiento && procedimiento !== "todos" && (
               <Badge variant="secondary" className="gap-1">
                 {procedimiento}<button onClick={() => setProcedimiento("")}><X className="h-3 w-3" /></button>
+              </Badge>
+            )}
+            {soloObservadas && (
+              <Badge variant="secondary" className="gap-1 bg-orange-100 text-orange-700 border-orange-300">
+                <Eye className="h-3 w-3" /> Con observaciones
+                <button onClick={() => setSoloObservadas(false)}><X className="h-3 w-3" /></button>
               </Badge>
             )}
           </div>
@@ -328,9 +346,16 @@ export default function Explorador() {
                                 {item.titulo || "Sin título"}
                               </span>
                             </Link>
-                            <span className={`mt-1 inline-block text-xs px-1.5 py-0.5 rounded font-medium ${estadoColor}`}>
-                              {ESTADO_MAPPING[item.estado || ""] || item.estado || "—"}
-                            </span>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              <span className={`inline-block text-xs px-1.5 py-0.5 rounded font-medium ${estadoColor}`}>
+                                {ESTADO_MAPPING[item.estado || ""] || item.estado || "—"}
+                              </span>
+                              {(item.observacionesCount ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-200 font-medium">
+                                  <Eye className="h-2.5 w-2.5" />{item.observacionesCount}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>

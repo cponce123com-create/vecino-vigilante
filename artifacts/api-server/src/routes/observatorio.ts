@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, contratacionesTable, entidadesTable, proveedoresTable } from "@workspace/db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { db, contratacionesTable, entidadesTable, proveedoresTable, ubigeosTable } from "@workspace/db";
+import { eq, and, sql, desc, gt } from "drizzle-orm";
 import { GetRankingsQueryParams, GetAlertasQueryParams } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -165,6 +165,59 @@ router.get("/observatorio/alertas", async (req, res): Promise<void> => {
   ];
 
   res.json(alertas.slice(0, limit));
+});
+
+// ── GET /api/observatorio/observadas ────────────────────────────────
+router.get("/observatorio/observadas", async (req, res): Promise<void> => {
+  const ubigeo = req.query.ubigeo as string | undefined;
+  const limit = Math.min(parseInt(req.query.limit as string ?? "30"), 100);
+  const page = Math.max(parseInt(req.query.page as string ?? "1"), 1);
+  const offset = (page - 1) * limit;
+
+  const conditions = [gt(contratacionesTable.observacionesCount, 0)];
+  if (ubigeo) conditions.push(eq(contratacionesTable.ubigeoCodigo, ubigeo));
+  const where = and(...conditions);
+
+  const [rows, countResult] = await Promise.all([
+    db.select({
+      ocid: contratacionesTable.ocid,
+      titulo: contratacionesTable.titulo,
+      tipo: contratacionesTable.tipo,
+      procedimiento: contratacionesTable.procedimiento,
+      estado: contratacionesTable.estado,
+      observacionesCount: contratacionesTable.observacionesCount,
+      montoReferencial: contratacionesTable.montoReferencial,
+      montoAdjudicado: contratacionesTable.montoAdjudicado,
+      fechaConvocatoria: contratacionesTable.fechaConvocatoria,
+      entidadNombre: entidadesTable.nombre,
+      entidadRuc: contratacionesTable.entidadRuc,
+      ubigeoDistrito: ubigeosTable.distrito,
+      ubigeoCodigo: contratacionesTable.ubigeoCodigo,
+    })
+    .from(contratacionesTable)
+    .leftJoin(entidadesTable, eq(contratacionesTable.entidadRuc, entidadesTable.ruc))
+    .leftJoin(ubigeosTable, eq(contratacionesTable.ubigeoCodigo, ubigeosTable.codigo))
+    .where(where)
+    .orderBy(desc(contratacionesTable.observacionesCount))
+    .limit(limit)
+    .offset(offset),
+    db.select({ count: sql<number>`COUNT(*)` }).from(contratacionesTable).where(where),
+  ]);
+
+  const total = Number(countResult[0]?.count ?? 0);
+
+  res.json({
+    data: rows.map((r) => ({
+      ...r,
+      montoReferencial: r.montoReferencial != null ? parseFloat(r.montoReferencial) : null,
+      montoAdjudicado: r.montoAdjudicado != null ? parseFloat(r.montoAdjudicado) : null,
+      fechaConvocatoria: r.fechaConvocatoria?.toISOString() ?? null,
+    })),
+    total,
+    page,
+    limit,
+    pages: Math.ceil(total / limit),
+  });
 });
 
 export default router;

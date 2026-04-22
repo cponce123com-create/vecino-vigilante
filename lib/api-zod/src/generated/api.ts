@@ -44,6 +44,7 @@ export const GetContratacionesQueryParams = zod.object({
       zod.literal(null),
     ])
     .nullish(),
+  observada: zod.coerce.string().nullish(),
 });
 
 export const GetContratacionesResponse = zod.object({
@@ -70,6 +71,7 @@ export const GetContratacionesResponse = zod.object({
       fechaAdjudicacion: zod.string().nullish(),
       fechaContrato: zod.string().nullish(),
       plazoEjecucionDias: zod.number().nullish(),
+      observacionesCount: zod.number().nullish(),
       createdAt: zod.string().nullish(),
       updatedAt: zod.string().nullish(),
     }),
@@ -111,6 +113,7 @@ export const GetContratacionResponse = zod
     fechaAdjudicacion: zod.string().nullish(),
     fechaContrato: zod.string().nullish(),
     plazoEjecucionDias: zod.number().nullish(),
+    observacionesCount: zod.number().nullish(),
     createdAt: zod.string().nullish(),
     updatedAt: zod.string().nullish(),
   })
@@ -216,6 +219,7 @@ export const GetDistritoResponse = zod
             fechaAdjudicacion: zod.string().nullish(),
             fechaContrato: zod.string().nullish(),
             plazoEjecucionDias: zod.number().nullish(),
+            observacionesCount: zod.number().nullish(),
             createdAt: zod.string().nullish(),
             updatedAt: zod.string().nullish(),
           }),
@@ -348,6 +352,7 @@ export const GetEntidadResponse = zod
             fechaAdjudicacion: zod.string().nullish(),
             fechaContrato: zod.string().nullish(),
             plazoEjecucionDias: zod.number().nullish(),
+            observacionesCount: zod.number().nullish(),
             createdAt: zod.string().nullish(),
             updatedAt: zod.string().nullish(),
           }),
@@ -446,6 +451,7 @@ export const GetProveedorResponse = zod
             fechaAdjudicacion: zod.string().nullish(),
             fechaContrato: zod.string().nullish(),
             plazoEjecucionDias: zod.number().nullish(),
+            observacionesCount: zod.number().nullish(),
             createdAt: zod.string().nullish(),
             updatedAt: zod.string().nullish(),
           }),
@@ -595,6 +601,42 @@ export const GetAlertasResponseItem = zod.object({
   procedimiento: zod.string().nullish(),
 });
 export const GetAlertasResponse = zod.array(GetAlertasResponseItem);
+
+/**
+ * @summary Contrataciones con observaciones formales registradas
+ */
+export const getObservadasQueryPageDefault = 1;
+export const getObservadasQueryLimitDefault = 30;
+
+export const GetObservadasQueryParams = zod.object({
+  ubigeo: zod.coerce.string().nullish(),
+  page: zod.coerce.number().default(getObservadasQueryPageDefault),
+  limit: zod.coerce.number().default(getObservadasQueryLimitDefault),
+});
+
+export const GetObservadasResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      ocid: zod.string(),
+      titulo: zod.string(),
+      tipo: zod.string().nullish(),
+      procedimiento: zod.string().nullish(),
+      estado: zod.string().nullish(),
+      observacionesCount: zod.number().nullish(),
+      montoReferencial: zod.number().nullish(),
+      montoAdjudicado: zod.number().nullish(),
+      fechaConvocatoria: zod.string().nullish(),
+      entidadNombre: zod.string().nullish(),
+      entidadRuc: zod.string().nullish(),
+      ubigeoDistrito: zod.string().nullish(),
+      ubigeoCodigo: zod.string().nullish(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+  pages: zod.number(),
+});
 
 /**
  * @summary Preview de cuántos registros y monto total para los filtros del Excel

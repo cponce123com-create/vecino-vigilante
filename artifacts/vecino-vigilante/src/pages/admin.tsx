@@ -20,6 +20,7 @@ const ARCHIVOS_NECESARIOS = [
   "ent_contratos.csv",
   "ent_adj_articulosadjudicados.csv",
   "ent_ordenes.csv",
+  "ent_observaciones.csv",
 ];
 
 function parseCSV(text: string): Record<string, string>[] {
@@ -65,6 +66,7 @@ interface SyncResult {
   errores: number;
   articulosImportados?: number;
   ordenesImportadas?: number;
+  observacionesImportadas?: number;
 }
 
 interface ArchivosDetectados {
@@ -74,6 +76,7 @@ interface ArchivosDetectados {
   contratos: boolean;
   articulos: boolean;
   ordenes: boolean;
+  observaciones: boolean;
 }
 
 export default function Admin() {
@@ -138,6 +141,7 @@ export default function Admin() {
       contratos: archivos.has("ent_contratos.csv"),
       articulos: archivos.has("ent_adj_articulosadjudicados.csv"),
       ordenes: archivos.has("ent_ordenes.csv"),
+      observaciones: archivos.has("ent_observaciones.csv"),
     });
   }
 
@@ -149,6 +153,7 @@ export default function Admin() {
     conChunk: Record<string, string>[],
     articulosChunk: Record<string, string>[],
     ordenesChunk: Record<string, string>[],
+    observacionesChunk: Record<string, string>[],
   ): Promise<SyncResult> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (secret) headers["x-sync-secret"] = secret;
@@ -163,6 +168,7 @@ export default function Admin() {
         contratos: conChunk,
         articulosAdj: articulosChunk,
         ordenes: ordenesChunk,
+        observaciones: observacionesChunk,
       }),
     });
 
@@ -181,6 +187,7 @@ export default function Admin() {
     const contratos = archivos.get("ent_contratos.csv") ?? [];
     const articulosAdj = archivos.get("ent_adj_articulosadjudicados.csv") ?? [];
     const ordenes = archivos.get("ent_ordenes.csv") ?? [];
+    const observaciones = archivos.get("ent_observaciones.csv") ?? [];
 
     if (!registros.length || !partes.length) {
       throw new Error("Faltan archivos obligatorios: Registros.csv y Ent_PartesInvolucradas.csv");
@@ -209,11 +216,18 @@ export default function Admin() {
       if (!ordenesIdx.has(ocid)) ordenesIdx.set(ocid, []);
       ordenesIdx.get(ocid)!.push(ord);
     }
+    const obsIdx = new Map<string, Record<string, string>[]>();
+    for (const obs of observaciones) {
+      const ocid = obs[OCID_KEY];
+      if (!obsIdx.has(ocid)) obsIdx.set(ocid, []);
+      obsIdx.get(ocid)!.push(obs);
+    }
 
     const chunks = chunkArray(registros, CHUNK_SIZE);
     const totals: SyncResult = {
       chanchamayoEncontrados: 0, procesados: 0, nuevos: 0,
       actualizados: 0, errores: 0, articulosImportados: 0, ordenesImportadas: 0,
+      observacionesImportadas: 0,
     };
 
     for (let i = 0; i < chunks.length; i++) {
@@ -226,8 +240,9 @@ export default function Admin() {
       const conChunk = [...chunkOcids].flatMap(id => conIdx.has(id) ? [conIdx.get(id)!] : []);
       const articulosChunk = [...chunkOcids].flatMap(id => artIdx.get(id) ?? []);
       const ordenesChunk = [...chunkOcids].flatMap(id => ordenesIdx.get(id) ?? []);
+      const obsChunk = [...chunkOcids].flatMap(id => obsIdx.get(id) ?? []);
 
-      const data = await sendChunk(chunks[i], partesChunk, adjChunk, conChunk, articulosChunk, ordenesChunk);
+      const data = await sendChunk(chunks[i], partesChunk, adjChunk, conChunk, articulosChunk, ordenesChunk, obsChunk);
       totals.chanchamayoEncontrados = Math.max(totals.chanchamayoEncontrados, data.chanchamayoEncontrados);
       totals.procesados += data.procesados;
       totals.nuevos += data.nuevos;
@@ -235,6 +250,7 @@ export default function Admin() {
       totals.errores += data.errores;
       totals.articulosImportados! += data.articulosImportados ?? 0;
       totals.ordenesImportadas! += data.ordenesImportadas ?? 0;
+      totals.observacionesImportadas! += data.observacionesImportadas ?? 0;
     }
 
     return totals;
@@ -317,14 +333,26 @@ export default function Admin() {
         <CardContent className="p-4">
           <div className="flex gap-3">
             <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-800 space-y-1">
-              <p className="font-semibold">Cómo obtener los archivos:</p>
-              <ol className="list-decimal list-inside space-y-1">
-                <li>Ve a <a href="https://contratacionesabiertas.oece.gob.pe/descargas" target="_blank" rel="noreferrer" className="underline font-medium">contratacionesabiertas.oece.gob.pe/descargas</a></li>
-                <li>Descarga el ZIP del mes — formato <strong>CSV (ES)</strong></li>
-                <li>Sube el ZIP directamente <strong>sin descomprimir</strong>, o sube todos los CSV sueltos</li>
-                <li>La web detecta automáticamente los archivos que necesita</li>
-              </ol>
+            <div className="text-sm text-blue-800 space-y-3">
+              <div>
+                <p className="font-semibold mb-1">Fuente principal — OECE (datos OCDS):</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Ve a <a href="https://contratacionesabiertas.oece.gob.pe/descargas" target="_blank" rel="noreferrer" className="underline font-medium">contratacionesabiertas.oece.gob.pe/descargas</a></li>
+                  <li>Descarga el ZIP del mes — formato <strong>CSV (ES)</strong></li>
+                  <li>Sube el ZIP directamente <strong>sin descomprimir</strong>, o sube todos los CSV sueltos</li>
+                  <li>La web detecta automáticamente todos los archivos (incluyendo órdenes y observaciones)</li>
+                </ol>
+              </div>
+              <div className="border-t border-blue-200 pt-2">
+                <p className="font-semibold mb-1">Portal SEACE — Datos abiertos adicionales:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><a href="https://bi.seace.gob.pe/pentaho/api/repos/%3Apublic%3Aportal%3Adatosabiertos.html/content?userid=public&password=key" target="_blank" rel="noreferrer" className="underline font-medium">CONOSCE Datos Abiertos (SEACE)</a> — Órdenes de compra/servicio, PAC, contratos</li>
+                  <li><a href="https://contratacionesabiertas.oece.gob.pe" target="_blank" rel="noreferrer" className="underline font-medium">Contrataciones Abiertas OECE</a> — Datos OCDS completos</li>
+                </ul>
+              </div>
+              <div className="border-t border-blue-200 pt-2 text-xs text-blue-700">
+                <strong>Archivos reconocidos:</strong> Registros.csv · Partes involucradas · Adjudicaciones · Contratos · Artículos adj. · Órdenes de compra/servicio · <strong>Observaciones</strong>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -418,6 +446,7 @@ export default function Admin() {
                     { key: "contratos", label: "Contratos", req: false },
                     { key: "articulos", label: "Artículos adj.", req: false },
                     { key: "ordenes", label: "Órdenes de compra/servicio", req: false },
+                    { key: "observaciones", label: "Observaciones", req: false },
                   ].map(({ key, label, req }) => {
                     const found = archivosDetectados[key as keyof ArchivosDetectados];
                     return (
@@ -457,6 +486,7 @@ export default function Admin() {
                 { label: "Actualizados", value: result.actualizados },
                 ...(result.articulosImportados ? [{ label: "Artículos importados", value: result.articulosImportados }] : []),
                 ...(result.ordenesImportadas ? [{ label: "Órdenes importadas", value: result.ordenesImportadas }] : []),
+                ...(result.observacionesImportadas ? [{ label: "Observaciones importadas", value: result.observacionesImportadas }] : []),
                 ...(result.errores > 0 ? [{ label: "Con errores", value: result.errores }] : []),
               ].map(({ label, value }) => (
                 <div key={label} className="bg-green-50 rounded-lg p-3 text-center">

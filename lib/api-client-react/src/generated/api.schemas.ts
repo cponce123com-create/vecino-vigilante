@@ -55,6 +55,8 @@ export interface Contratacion {
   /** @nullable */
   plazoEjecucionDias?: number | null;
   /** @nullable */
+  observacionesCount?: number | null;
+  /** @nullable */
   createdAt?: string | null;
   /** @nullable */
   updatedAt?: string | null;
@@ -260,6 +262,41 @@ export interface ExcelPreview {
   proveedoresUnicos: number;
 }
 
+export interface ContratacionObservada {
+  ocid: string;
+  titulo: string;
+  /** @nullable */
+  tipo?: string | null;
+  /** @nullable */
+  procedimiento?: string | null;
+  /** @nullable */
+  estado?: string | null;
+  /** @nullable */
+  observacionesCount?: number | null;
+  /** @nullable */
+  montoReferencial?: number | null;
+  /** @nullable */
+  montoAdjudicado?: number | null;
+  /** @nullable */
+  fechaConvocatoria?: string | null;
+  /** @nullable */
+  entidadNombre?: string | null;
+  /** @nullable */
+  entidadRuc?: string | null;
+  /** @nullable */
+  ubigeoDistrito?: string | null;
+  /** @nullable */
+  ubigeoCodigo?: string | null;
+}
+
+export interface ObservadasResponse {
+  data: ContratacionObservada[];
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+}
+
 export interface SyncResult {
   message: string;
   registrosProcesados?: number;
@@ -319,6 +356,10 @@ export type GetContratacionesParams = {
    * @nullable
    */
   ordenar?: GetContratacionesOrdenar;
+  /**
+   * @nullable
+   */
+  observada?: string | null;
 };
 
 export type GetContratacionesOrdenar =
@@ -410,6 +451,15 @@ export type GetAlertasParams = {
    * @nullable
    */
   ubigeo?: string | null;
+  limit?: number;
+};
+
+export type GetObservadasParams = {
+  /**
+   * @nullable
+   */
+  ubigeo?: string | null;
+  page?: number;
   limit?: number;
 };
 

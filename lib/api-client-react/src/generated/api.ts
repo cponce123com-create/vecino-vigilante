@@ -32,11 +32,13 @@ import type {
   GetEntidadesParams,
   GetEvolucionMensualParams,
   GetExcelPreviewParams,
+  GetObservadasParams,
   GetProveedoresParams,
   GetRankingsParams,
   GetStatsParams,
   GetTipoDistribucionParams,
   HealthStatus,
+  ObservadasResponse,
   ProveedorDetalle,
   ProveedoresResponse,
   PuntoEvolucion,
@@ -1332,6 +1334,100 @@ export function useGetAlertas<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetAlertasQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Contrataciones con observaciones formales registradas
+ */
+export const getGetObservadasUrl = (params?: GetObservadasParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/observatorio/observadas?${stringifiedParams}`
+    : `/api/observatorio/observadas`;
+};
+
+export const getObservadas = async (
+  params?: GetObservadasParams,
+  options?: RequestInit,
+): Promise<ObservadasResponse> => {
+  return customFetch<ObservadasResponse>(getGetObservadasUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetObservadasQueryKey = (params?: GetObservadasParams) => {
+  return [`/api/observatorio/observadas`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetObservadasQueryOptions = <
+  TData = Awaited<ReturnType<typeof getObservadas>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetObservadasParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getObservadas>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetObservadasQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getObservadas>>> = ({
+    signal,
+  }) => getObservadas(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getObservadas>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetObservadasQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getObservadas>>
+>;
+export type GetObservadasQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Contrataciones con observaciones formales registradas
+ */
+
+export function useGetObservadas<
+  TData = Awaited<ReturnType<typeof getObservadas>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetObservadasParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getObservadas>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetObservadasQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

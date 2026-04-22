@@ -57,13 +57,14 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
   }
 
   try {
-    const { registros, partes, adjudicaciones, contratos, articulosAdj, ordenes } = req.body as {
+    const { registros, partes, adjudicaciones, contratos, articulosAdj, ordenes, observaciones } = req.body as {
       registros: Record<string, string>[];
       partes: Record<string, string>[];
       adjudicaciones: Record<string, string>[];
       contratos: Record<string, string>[];
       articulosAdj?: Record<string, string>[];
       ordenes?: Record<string, string>[];
+      observaciones?: Record<string, string>[];
     };
 
     if (!registros?.length || !partes?.length) {
@@ -107,6 +108,15 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
         fecha: c["Entrega compilada:Contratos:Fecha de firma"] ?? "",
         plazo: c["Entrega compilada:Contratos:Periodo:Duración (días)"] ?? "",
       };
+    }
+
+    // Indexar observaciones por OCID
+    const observacionesMap: Record<string, number> = {};
+    if (observaciones && observaciones.length > 0) {
+      for (const obs of observaciones) {
+        const ocid = obs["Open Contracting ID"];
+        if (ocid) observacionesMap[ocid] = (observacionesMap[ocid] ?? 0) + 1;
+      }
     }
 
     // Filtrar registros de Chanchamayo
@@ -183,6 +193,8 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
         if (fechaCon) estadoReal = "CONTRATADO";
         else if (fechaAdj) estadoReal = "ADJUDICADO";
 
+        const obsCount = observacionesMap[ocid] ?? 0;
+
         if (existing.length === 0) {
           await db.insert(contratacionesTable).values({
             ocid,
@@ -201,6 +213,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
             fechaAdjudicacion: fechaAdj,
             fechaContrato: fechaCon,
             plazoEjecucionDias: plazo,
+            observacionesCount: obsCount,
             rawOcds: reg as Record<string, unknown>,
           });
           nuevos++;
@@ -213,6 +226,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
             fechaAdjudicacion: fechaAdj,
             fechaContrato: fechaCon,
             proveedorRuc: proveedor?.ruc ?? null,
+            ...(obsCount > 0 ? { observacionesCount: obsCount } : {}),
           }).where(eq(contratacionesTable.ocid, ocid));
           actualizados++;
         }
@@ -282,6 +296,8 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
       }
     }
 
+    const observacionesImportadas = Object.values(observacionesMap).reduce((s, v) => s + v, 0);
+
     // Registrar sync log
     await db.insert(syncLogTable).values({
       id: randomUUID(),
@@ -301,6 +317,7 @@ router.post("/sync/csv", async (req, res): Promise<void> => {
       errores,
       articulosImportados,
       ordenesImportadas,
+      observacionesImportadas,
     });
   } catch (err) {
     console.error("CSV upload error:", err);
