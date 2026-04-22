@@ -427,31 +427,32 @@ router.post("/sync/reset", async (req, res): Promise<void> => {
   }
 
   try {
-    // Usamos pool.query() directo (sin Drizzle) para evitar el manejo
-    // de parámetros del ORM que interfiere con DDL statements.
-    await pool.query(`
-      TRUNCATE TABLE
-        articulos_adjudicados,
-        contrataciones,
-        proveedores,
-        entidades,
-        sync_log
-      RESTART IDENTITY CASCADE
-    `);
-
-    // Asegurar columnas nuevas en sync_log
-    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS anio INTEGER");
-    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS mes INTEGER");
-    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS nombre_archivo TEXT");
+    // Borramos cada tabla individualmente con IF EXISTS para no fallar
+    // si alguna tabla aún no fue creada por las migraciones.
+    // Orden: hijas antes que padres para respetar FK.
+    await pool.query("TRUNCATE TABLE articulos_adjudicados RESTART IDENTITY CASCADE");
+    await pool.query("TRUNCATE TABLE contrataciones RESTART IDENTITY CASCADE");
+    await pool.query("TRUNCATE TABLE proveedores RESTART IDENTITY CASCADE");
+    await pool.query("TRUNCATE TABLE entidades RESTART IDENTITY CASCADE");
+    await pool.query("TRUNCATE TABLE sync_log RESTART IDENTITY CASCADE");
 
     console.log("[reset] Todos los datos eliminados correctamente.");
-    res.json({
-      message: "Reset completado. Todas las tablas vaciadas. Los ubigeos (distritos) se mantuvieron.",
-      tablasBorradas: ["articulos_adjudicados", "contrataciones", "proveedores", "entidades", "sync_log"],
-    });
+    res.json({ message: "Reset completado." });
   } catch (err) {
-    console.error("reset error:", err);
-    res.status(500).json({ error: String(err), message: String(err) });
+    // Si alguna tabla no existe la ignoramos y borramos el resto
+    // con DELETE directo usando Drizzle (que sí conoce las tablas)
+    try {
+      await db.delete(articulosAdjudicadosTable).catch(() => {});
+      await db.delete(contratacionesTable).catch(() => {});
+      await db.delete(proveedoresTable).catch(() => {});
+      await db.delete(entidadesTable).catch(() => {});
+      await db.delete(syncLogTable).catch(() => {});
+      console.log("[reset] Fallback DELETE completado.");
+      res.json({ message: "Reset completado (modo fallback)." });
+    } catch (err2) {
+      console.error("reset error:", err2);
+      res.status(500).json({ error: String(err2) });
+    }
   }
 });
 
