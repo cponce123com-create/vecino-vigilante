@@ -18,6 +18,20 @@ import { execFile } from "child_process";
 
 const router: IRouter = Router();
 
+// Auto-migración: agrega columnas nuevas si no existen (idempotente).
+// Corre una sola vez al arrancar el servidor.
+async function autoMigrate() {
+  try {
+    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS anio INTEGER`);
+    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS mes INTEGER`);
+    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS nombre_archivo TEXT`);
+    console.log("[auto-migrate] sync_log OK");
+  } catch (e) {
+    console.warn("[auto-migrate] warning:", e);
+  }
+}
+autoMigrate();
+
 // ── Helpers ──────────────────────────────────────────────────────────
 function isChanchamayo(region: string): boolean {
   return region.toUpperCase().includes("CHANCHAMAYO");
@@ -413,13 +427,18 @@ router.post("/sync/reset", async (req, res): Promise<void> => {
   }
 
   try {
-    // Borrar en orden correcto respetando FK: primero las tablas hijas
-    await db.delete(articulosAdjudicadosTable);
-    await db.delete(contratacionesTable);
-    await db.delete(proveedoresTable);
-    // Las entidades tienen FK a ubigeos, no borramos ubigeos (son datos maestros)
-    await db.delete(entidadesTable);
-    await db.delete(syncLogTable);
+    // Usamos SQL raw para evitar cualquier validación de schema de Drizzle.
+    // El orden respeta las FK: primero tablas hijas, luego padres.
+    await db.execute(sql`DELETE FROM articulos_adjudicados`);
+    await db.execute(sql`DELETE FROM contrataciones`);
+    await db.execute(sql`DELETE FROM proveedores`);
+    await db.execute(sql`DELETE FROM entidades`);
+    await db.execute(sql`DELETE FROM sync_log`);
+
+    // Asegurarnos que las columnas nuevas existen (si no se ejecutó la migración)
+    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS anio INTEGER`);
+    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS mes INTEGER`);
+    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS nombre_archivo TEXT`);
 
     console.log("[reset] Todos los datos eliminados correctamente.");
     res.json({
