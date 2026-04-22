@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   db,
+  pool,
   contratacionesTable,
   entidadesTable,
   proveedoresTable,
@@ -19,12 +20,11 @@ import { execFile } from "child_process";
 const router: IRouter = Router();
 
 // Auto-migración: agrega columnas nuevas si no existen (idempotente).
-// Corre una sola vez al arrancar el servidor.
 async function autoMigrate() {
   try {
-    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS anio INTEGER`);
-    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS mes INTEGER`);
-    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS nombre_archivo TEXT`);
+    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS anio INTEGER");
+    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS mes INTEGER");
+    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS nombre_archivo TEXT");
     console.log("[auto-migrate] sync_log OK");
   } catch (e) {
     console.warn("[auto-migrate] warning:", e);
@@ -427,10 +427,10 @@ router.post("/sync/reset", async (req, res): Promise<void> => {
   }
 
   try {
-    // TRUNCATE CASCADE borra todo en una sola operación atómica,
-    // ignorando el orden de FK y sin necesidad de desactivar constraints.
-    await db.execute(sql`
-      TRUNCATE TABLE 
+    // Usamos pool.query() directo (sin Drizzle) para evitar el manejo
+    // de parámetros del ORM que interfiere con DDL statements.
+    await pool.query(`
+      TRUNCATE TABLE
         articulos_adjudicados,
         contrataciones,
         proveedores,
@@ -439,10 +439,10 @@ router.post("/sync/reset", async (req, res): Promise<void> => {
       RESTART IDENTITY CASCADE
     `);
 
-    // Asegurar columnas nuevas en sync_log (idempotente)
-    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS anio INTEGER`);
-    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS mes INTEGER`);
-    await db.execute(sql`ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS nombre_archivo TEXT`);
+    // Asegurar columnas nuevas en sync_log
+    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS anio INTEGER");
+    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS mes INTEGER");
+    await pool.query("ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS nombre_archivo TEXT");
 
     console.log("[reset] Todos los datos eliminados correctamente.");
     res.json({
@@ -451,7 +451,6 @@ router.post("/sync/reset", async (req, res): Promise<void> => {
     });
   } catch (err) {
     console.error("reset error:", err);
-    // Devolvemos el mensaje completo para que el frontend lo muestre
     res.status(500).json({ error: String(err), message: String(err) });
   }
 });
