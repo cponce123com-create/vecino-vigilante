@@ -54,7 +54,6 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 }
 
 type UploadState = "idle" | "loading" | "success" | "error";
-type AutoState = "idle" | "loading" | "success" | "error";
 type ResetState = "idle" | "confirm" | "loading" | "done" | "error";
 
 interface SyncResult {
@@ -88,7 +87,7 @@ export default function Admin() {
   const csvMultiRef = useRef<HTMLInputElement>(null);
 
   // ── Estado auto-import ───────────────────────────────────────────
-  const [autoState, setAutoState] = useState<AutoState>("idle");
+  const [autoState, setAutoState] = useState<"idle"|"loading"|"success"|"error">("idle");
   const [autoResult, setAutoResult] = useState<SyncResult & { yaExistia?: boolean } | null>(null);
   const [autoError, setAutoError] = useState("");
   const [autoAnio, setAutoAnio] = useState(() => { const d = new Date(); return d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear(); });
@@ -125,8 +124,9 @@ export default function Admin() {
         body: JSON.stringify({ anio: autoAnio, mes: autoMes, forzar }),
       });
       const text = await res.text();
-      if (!res.ok) throw new Error(JSON.parse(text)?.error ?? text);
-      const data = JSON.parse(text);
+      let data: any = {};
+      try { data = JSON.parse(text); } catch { data = { error: text }; }
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       setAutoResult(data);
       setAutoState("success");
       refetch(); cargarHistorial();
@@ -285,29 +285,18 @@ export default function Admin() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Descarga e importa directamente el ZIP oficial del portal de Contrataciones Abiertas del OECE. El servidor hace la descarga, no tu navegador.
+            El servidor descarga e importa directamente el ZIP oficial. Selecciona el mes y pulsa importar.
           </p>
-
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium">Año:</label>
-              <select
-                className="border rounded px-2 py-1.5 text-sm bg-background"
-                value={autoAnio}
-                onChange={e => setAutoAnio(parseInt(e.target.value))}
-                disabled={autoState === "loading"}
-              >
-                {[2023, 2024, 2025, 2026].map(a => <option key={a} value={a}>{a}</option>)}
+              <select className="border rounded px-2 py-1.5 text-sm bg-background" value={autoAnio} onChange={e => setAutoAnio(parseInt(e.target.value))} disabled={autoState === "loading"}>
+                {[2022,2023,2024,2025,2026].map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium">Mes:</label>
-              <select
-                className="border rounded px-2 py-1.5 text-sm bg-background"
-                value={autoMes}
-                onChange={e => setAutoMes(parseInt(e.target.value))}
-                disabled={autoState === "loading"}
-              >
+              <select className="border rounded px-2 py-1.5 text-sm bg-background" value={autoMes} onChange={e => setAutoMes(parseInt(e.target.value))} disabled={autoState === "loading"}>
                 {MESES_ES.slice(1).map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
               </select>
             </div>
@@ -316,22 +305,16 @@ export default function Admin() {
               Re-importar si ya existe
             </label>
           </div>
-
-          <Button
-            onClick={handleAutoImport}
-            disabled={autoState === "loading"}
-            className="w-full"
-          >
+          <Button onClick={handleAutoImport} disabled={autoState === "loading"} className="w-full">
             {autoState === "loading"
-              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Descargando e importando...</>
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Descargando e importando... (puede tardar 1-2 min)</>
               : <><CloudDownload className="h-4 w-4 mr-2" />Importar {MESES_ES[autoMes]} {autoAnio}</>}
           </Button>
-
           {autoState === "success" && autoResult && (
             <div className={`rounded-lg p-3 text-sm ${autoResult.yaExistia ? "bg-blue-50 border border-blue-200 text-blue-800" : "bg-green-50 border border-green-200 text-green-800"}`}>
               {autoResult.yaExistia
-                ? <><CheckCircle className="h-4 w-4 inline mr-1" />El período {autoResult.periodo} ya estaba importado. Marca "Re-importar" para forzarlo.</>
-                : <><CheckCircle className="h-4 w-4 inline mr-1" /><strong>¡Completado!</strong> {autoResult.nuevos} nuevos · {autoResult.actualizados} actualizados · {autoResult.errores > 0 ? `${autoResult.errores} con errores` : "sin errores"}</>}
+                ? <><CheckCircle className="h-4 w-4 inline mr-1" />El período ya estaba importado. Marca "Re-importar" para forzarlo.</>
+                : <><CheckCircle className="h-4 w-4 inline mr-1" /><strong>¡Completado!</strong> {autoResult.nuevos} nuevos · {autoResult.actualizados} actualizados{(autoResult.errores ?? 0) > 0 ? ` · ${autoResult.errores} con errores` : ""}</>}
             </div>
           )}
           {autoState === "error" && (
