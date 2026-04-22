@@ -83,6 +83,8 @@ export default function Admin() {
   const [zipResults, setZipResults] = useState<ZipResult[]>([]);
   const [progreso, setProgreso] = useState("");
   const [progresoPct, setProgresoPct] = useState(0);
+  const [reindexResult, setReindexResult] = useState<{ contratacionesActualizadas: number; entidadesActualizadas: number } | null>(null);
+  const [isReindexing, setIsReindexing] = useState(false);
   const zipMultiRef = useRef<HTMLInputElement>(null);
   const csvMultiRef = useRef<HTMLInputElement>(null);
 
@@ -295,9 +297,9 @@ export default function Admin() {
   // ── Reset ────────────────────────────────────────────────────────
   async function handleReset() {
     setResetState("loading"); setResetError("");
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (secret) headers["x-sync-secret"] = secret;
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (secret) headers["x-sync-secret"] = secret;
       const res = await fetch(apiUrl("/api/sync/reset"), { method:"POST", headers, body: JSON.stringify({ confirmar:"BORRAR_TODO" }) });
       const text = await res.text();
       let data: any = {};
@@ -305,6 +307,24 @@ export default function Admin() {
       if (!res.ok) throw new Error(data.message ?? data.error ?? `HTTP ${res.status}`);
       setResetState("done"); setPeriodos([]); refetch();
     } catch (err) { setResetError(String(err)); setResetState("error"); }
+  }
+
+  async function handleReindex() {
+    setIsReindexing(true);
+    setReindexResult(null);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (secret) headers["x-sync-secret"] = secret;
+      const res = await fetch(apiUrl("/api/sync/reindex"), { method: "POST", headers });
+      if (!res.ok) throw new Error(`Error ${res.status} al reindexar`);
+      const data = await res.json();
+      setReindexResult(data);
+      refetch();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsReindexing(false);
+    }
   }
 
   // ── Totales de la multicarga ─────────────────────────────────────
@@ -539,7 +559,7 @@ export default function Admin() {
       )}
 
       {/* ── ZONA DE PELIGRO ─────────────────────────────────────────── */}
-      <Card className="border-red-200">
+      <Card className="border-red-200 mb-6">
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Trash2 className="h-5 w-5 text-red-600"/>
@@ -574,6 +594,43 @@ export default function Admin() {
             <div className="space-y-3">
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800"><AlertCircle className="h-4 w-4 inline mr-1"/>{resetError}</div>
               <Button variant="outline" className="w-full" onClick={() => setResetState("idle")}>Cerrar</Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── REINDEXACIÓN ─────────────────────────────────────────────── */}
+      <Card className="border-blue-200">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5 text-blue-600"/>
+            <CardTitle className="text-base text-blue-700">Mantenimiento — Reindexar ubigeos</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Si los mapas aparecen vacíos tras una importación, usa esta herramienta para intentar asignar el distrito correcto a cada contratación basándose en el nombre de la entidad.
+          </p>
+          <Button 
+            variant="outline" 
+            className="w-full border-blue-200 text-blue-700 hover:bg-blue-50"
+            onClick={handleReindex}
+            disabled={isReindexing || cargando}
+          >
+            {isReindexing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Reindexando...</> : <><RefreshCw className="h-4 w-4 mr-2"/>Reindexar ubigeos ahora</>}
+          </Button>
+
+          {reindexResult && (
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3">
+              <CheckCircle className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-blue-800">
+                <p className="font-semibold mb-1">Reindexación completada</p>
+                <ul className="space-y-0.5">
+                  <li>Contrataciones actualizadas: <strong>{reindexResult.contratacionesActualizadas}</strong></li>
+                  <li>Entidades actualizadas: <strong>{reindexResult.entidadesActualizadas}</strong></li>
+                </ul>
+                <Button variant="link" size="sm" onClick={() => setReindexResult(null)} className="p-0 h-auto text-blue-600 mt-2">Cerrar aviso</Button>
+              </div>
             </div>
           )}
         </CardContent>

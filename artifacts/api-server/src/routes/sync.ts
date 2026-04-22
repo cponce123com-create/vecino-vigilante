@@ -162,7 +162,7 @@ async function importarDesdeCsvs(
   }
 
   const chanchamayoOcids = new Set<string>();
-  const entidadMap: Record<string, { ruc: string; nombre: string; distrito: string }> = {};
+  const entidadMap: Record<string, { ruc: string; nombre: string; distrito: string; region: string }> = {};
   const proveedorMap: Record<string, { ruc: string; nombre: string }> = {};
 
   for (const p of partes) {
@@ -173,7 +173,7 @@ async function importarDesdeCsvs(
     const nombre = p["Entrega compilada:Partes involucradas:Nombre común"]?.trim();
     const distrito = p["Entrega compilada:Partes involucradas:Dirección:Localidad"]?.trim() || "";
     if (isChanchamayo(region)) chanchamayoOcids.add(ocid);
-    if (roles.includes("buyer") && ruc) entidadMap[ocid] = { ruc, nombre: nombre || ruc, distrito };
+    if (roles.includes("buyer") && ruc) entidadMap[ocid] = { ruc, nombre: nombre || ruc, distrito, region };
     if (roles.includes("supplier") && ruc && !proveedorMap[ocid]) proveedorMap[ocid] = { ruc, nombre: nombre || ruc };
   }
 
@@ -218,7 +218,20 @@ async function importarDesdeCsvs(
       const fechaCon = safeDate(con.fecha);
       let plazo: number | null = null;
       try { plazo = con.plazo ? Math.round(parseFloat(con.plazo)) : null; } catch { plazo = null; }
-      const ubigeoCodigo = entidad?.distrito ? (CHANCHAMAYO_MAP[entidad.distrito.toUpperCase()] || null) : null;
+      
+      let ubigeoCodigo = entidad?.distrito ? (CHANCHAMAYO_MAP[entidad.distrito.toUpperCase()] || null) : null;
+      if (!ubigeoCodigo && entidad?.region) {
+        const regionUpper = entidad.region.toUpperCase();
+        for (const [dist, code] of Object.entries(CHANCHAMAYO_MAP)) {
+          if (regionUpper.includes(dist)) {
+            ubigeoCodigo = code;
+            break;
+          }
+        }
+        if (!ubigeoCodigo && isChanchamayo(entidad.region)) {
+          ubigeoCodigo = "120301";
+        }
+      }
 
       if (entidad && !seenEntidades.has(entidad.ruc)) {
         seenEntidades.add(entidad.ruc);
@@ -466,14 +479,86 @@ router.post("/sync/reset", async (req, res): Promise<void> => {
     }
   }
 });
+// ── POST /api/sync/reindex ──────────────────────────────────────────
+router.post("/sync/reindex", async (req, res): Promise<void> => {
+  const secret = process.env.SYNC_SECRET;
+  if (secret && req.headers["x-sync-secret"] !== secret) {
+    res.status(401).json({ error: "No autorizado" });
+    return;
+  }
+
+  try {
+    // 1. Obtener todas las contrataciones con ubigeoCodigo null
+    const contrataciones = await db.select({
+      ocid: contratacionesTable.ocid,
+      rawOcds: contratacionesTable.rawOcds,
+    })
+    .from(contratacionesTable)
+    .where(sql`${contratacionesTable.ubigeoCodigo} IS NULL`);
+
+    let actualizados = 0;
+    for (const c of contrataciones) {
+      const raw = c.rawOcds as any;
+      if (!raw) continue;
+      const textoBusqueda = `${raw["Entrega compilada:Licitación:Título de la licitación"] || ""} ${raw["Entrega compilada:Licitación:Descripción de la licitación"] || ""}`.toUpperCase();
+      
+      let foundCode = null;
+      for (const [dist, code] of Object.entries(CHANCHAMAYO_MAP)) {
+        if (textoBusqueda.includes(dist)) {
+          foundCode = code;
+          break;
+        }
+      }
+
+      if (foundCode) {
+        await db.update(contratacionesTable).set({ ubigeoCodigo: foundCode }).where(eq(contratacionesTable.ocid, c.ocid));
+        actualizados++;
+      } else {
+        await db.update(contratacionesTable).set({ ubigeoCodigo: "120301" }).where(eq(contratacionesTable.ocid, c.ocid));
+        actualizados++;
+      }
+    }
+
+    // 2. Actualizar entidades también
+    const entidades = await db.select().from(entidadesTable).where(sql`${entidadesTable.ubigeoCodigo} IS NULL`);
+    let entidadesActualizadas = 0;
+    for (const e of entidades) {
+      const textoBusqueda = e.nombre.toUpperCase();
+      let foundCode = null;
+      for (const [dist, code] of Object.entries(CHANCHAMAYO_MAP)) {
+        if (textoBusqueda.includes(dist)) {
+          foundCode = code;
+          break;
+        }
+      }
+      if (foundCode) {
+        await db.update(entidadesTable).set({ ubigeoCodigo: foundCode }).where(eq(entidadesTable.ruc, e.ruc));
+        entidadesActualizadas++;
+      } else {
+        await db.update(entidadesTable).set({ ubigeoCodigo: "120301" }).where(eq(entidadesTable.ruc, e.ruc));
+        entidadesActualizadas++;
+      }
+    }
+
+    res.json({
+      message: "Reindexación completada",
+      contratacionesActualizadas: actualizados,
+      entidadesActualizadas
+    });
+  } catch (err) {
+    console.error("Reindex error:", err);
+    res.status(500).json({ error: "Error en reindexación", message: String(err) });
+  }
+});
 
 // ── GET /api/sync/status ─────────────────────────────────────────────
 router.get("/sync/status", async (_req, res): Promise<void> => {
-  const lastSync = await db.select().from(syncLogTable).orderBy(desc(syncLogTable.fechaEjecucion)).limit(1);
+  const lastSync = await db.select().from(syncLogTable)
+    .orderBy(desc(syncLogTable.fechaEjecucion)).limit(1);
   res.json({ ultimaEjecucion: lastSync[0] ?? null });
 });
 
-// ── GET /api/sync/history ─────────────────────────────────────────────
+export default router;y ─────────────────────────────────────────────
 router.get("/sync/history", async (_req, res): Promise<void> => {
   try {
     const logs = await db.select({
