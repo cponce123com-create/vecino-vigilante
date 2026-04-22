@@ -143,8 +143,10 @@ export default function Admin() {
         method: "POST", headers,
         body: JSON.stringify({ confirmar: "BORRAR_TODO" }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Error desconocido");
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch { data = { error: text }; }
+      if (!res.ok) throw new Error(data.message ?? data.error ?? `HTTP ${res.status}`);
       setResetState("done");
       setPeriodos([]);
       refetch();
