@@ -94,6 +94,15 @@ services:
       - key: GEMINI_API_KEY
         sync: false
 
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+
+      - key: TELEGRAM_WEBHOOK_URL
+        sync: false
+
+      - key: NODEJS_API_URL
+        sync: false
+
   # ─────────────────────────────────────────────────────────────────
   # FRONTEND — Static Site (React + Vite)
   # ─────────────────────────────────────────────────────────────────
