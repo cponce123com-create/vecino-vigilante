@@ -9,7 +9,9 @@ import observatorioRouter from "./observatorio";
 import excelRouter from "./excel";
 import syncRouter from "./sync";
 import pndaRouter from "./pnda";
-
+import telegramRouter from "./telegram";
+import personasRouter from "./personas";
+import etiquetasRouter from "./etiquetas";
 
 const router: IRouter = Router();
 
@@ -23,5 +25,8 @@ router.use(observatorioRouter);
 router.use(excelRouter);
 router.use(syncRouter);
 router.use(pndaRouter);
+router.use(telegramRouter);
+router.use(personasRouter);
+router.use(etiquetasRouter);
 
 export default router;

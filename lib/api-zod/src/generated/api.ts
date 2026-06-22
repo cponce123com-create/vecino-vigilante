@@ -669,3 +669,107 @@ export const TriggerSyncResponse = zod.object({
   registrosActualizados: zod.number().optional(),
   estado: zod.string(),
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// MÓDULO DE INVESTIGACIÓN - Personas, relaciones y etiquetas
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * @summary Procesar mensaje de Telegram
+ */
+export const ProcesarMensajeBody = zod.object({
+  texto: zod.string(),
+  chatId: zod.coerce.string().nullish(),
+});
+
+export const EntidadExtraida = zod.object({
+  nombre: zod.string(),
+  dni: zod.string().nullish(),
+  tipo: zod.string().default("PERSONA"),
+});
+
+export const RelacionExtraida = zod.object({
+  persona1Dni: zod.string().nullish(),
+  persona1Nombre: zod.string(),
+  persona2Dni: zod.string().nullish(),
+  persona2Nombre: zod.string(),
+  tipoRelacion: zod.string(),
+});
+
+export const EtiquetaExtraida = zod.object({
+  nombre: zod.string(),
+});
+
+export const ProcesarMensajeResponse = zod.object({
+  entidades: zod.array(EntidadExtraida),
+  relaciones: zod.array(RelacionExtraida),
+  etiquetas: zod.array(EtiquetaExtraida),
+});
+
+/**
+ * @summary Buscar persona por DNI
+ */
+export const BuscarPersonaQueryParams = zod.object({
+  dni: zod.coerce.string(),
+  profundidad: zod.coerce.number().default(4),
+});
+
+export const NodoArbol = zod.object({
+  id: zod.string(),
+  dni: zod.string().nullish(),
+  nombre: zod.string(),
+  fotoUrl: zod.string().nullish(),
+  nivel: zod.number(),
+  etiquetas: zod.array(zod.string()),
+});
+
+export const AristaArbol = zod.object({
+  source: zod.string(),
+  target: zod.string(),
+  tipoRelacion: zod.string(),
+});
+
+export const BuscarPersonaResponse = zod.object({
+  persona: NodoArbol.nullish(),
+  arbol: zod.object({
+    nodos: zod.array(NodoArbol),
+    aristas: zod.array(AristaArbol),
+  }),
+});
+
+/**
+ * @summary Etiquetar persona
+ */
+export const EtiquetarPersonaBody = zod.object({
+  etiquetaId: zod.string().uuid().nullish(),
+  nombre: zod.string().nullish(),
+});
+
+export const EtiquetarPersonaResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Subir foto de persona
+ */
+export const UploadFotoResponse = zod.object({
+  url: zod.string(),
+});
+
+/**
+ * @summary Etiqueta
+ */
+export const EtiquetaItem = zod.object({
+  id: zod.string(),
+  nombre: zod.string(),
+  descripcion: zod.string().nullish(),
+});
+
+export const GetEtiquetasResponse = zod.array(EtiquetaItem);
+
+export const CreateEtiquetaBody = zod.object({
+  nombre: zod.string().min(1).max(100),
+  descripcion: zod.string().nullish(),
+});
+
+export const CreateEtiquetaResponse = EtiquetaItem;

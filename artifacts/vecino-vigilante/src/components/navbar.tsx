@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Menu, X, BarChart2, Download, Building, Users, BookOpen, Info, Settings, Globe } from "lucide-react";
+import { Search, Menu, X, BarChart2, Download, Building, Users, BookOpen, Info, Settings, Globe, Shield } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
 
@@ -10,6 +10,7 @@ export function Navbar() {
   const links = [
     { href: "/explorador", label: "Explorar", icon: Search },
     { href: "/observatorio", label: "Observatorio", icon: BarChart2 },
+    { href: "/investigacion", label: "Investigación", icon: Shield },
     { href: "/entidades", label: "Entidades", icon: Building },
     { href: "/proveedores", label: "Proveedores", icon: Users },
     { href: "/fuentes", label: "Fuentes", icon: Globe },

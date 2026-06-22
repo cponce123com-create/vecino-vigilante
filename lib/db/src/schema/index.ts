@@ -4,3 +4,8 @@ export * from "./proveedores";
 export * from "./contrataciones";
 export * from "./articulos";
 export * from "./syncLog";
+export * from "./personas";
+export * from "./relaciones";
+export * from "./etiquetas";
+export * from "./persona_etiqueta";
+export * from "./mensajes_telegram";

@@ -1610,3 +1610,448 @@ export const useTriggerSync = <
 > => {
   return useMutation(getTriggerSyncMutationOptions(options));
 };
+
+// ──────────────────────────────────────────────────────────────
+// MÓDULO DE INVESTIGACIÓN
+// ──────────────────────────────────────────────────────────────
+
+// ─── Buscar persona por DNI ────────────────────────────────
+
+export const getBuscarPersonaUrl = (dni: string) => {
+  return `/api/personas/buscar?dni=${encodeURIComponent(dni)}`;
+};
+
+export const buscarPersona = async (
+  dni: string,
+  options?: RequestInit,
+): Promise<any> => {
+  return customFetch<any>(getBuscarPersonaUrl(dni), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getBuscarPersonaQueryKey = (dni: string) => {
+  return [`/api/personas/buscar`, dni] as const;
+};
+
+export const getBuscarPersonaQueryOptions = <
+  TData = Awaited<ReturnType<typeof buscarPersona>>,
+  TError = ErrorType<any>,
+>(
+  dni: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof buscarPersona>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getBuscarPersonaQueryKey(dni);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof buscarPersona>>> = ({
+    signal,
+  }) => buscarPersona(dni, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!dni,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof buscarPersona>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useBuscarPersona<
+  TData = Awaited<ReturnType<typeof buscarPersona>>,
+  TError = ErrorType<any>,
+>(
+  dni: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof buscarPersona>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getBuscarPersonaQueryOptions(dni, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+// ─── Procesar mensaje Telegram ─────────────────────────────
+
+export const getProcesarMensajeUrl = () => {
+  return `/api/telegram/procesar`;
+};
+
+export const procesarMensaje = async (
+  body: { texto: string; chatId?: string | null },
+  options?: RequestInit,
+): Promise<any> => {
+  return customFetch<any>(getProcesarMensajeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+};
+
+export const getProcesarMensajeMutationOptions = <
+  TError = ErrorType<any>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof procesarMensaje>>,
+    TError,
+    { texto: string; chatId?: string | null },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof procesarMensaje>>,
+  TError,
+  { texto: string; chatId?: string | null },
+  TContext
+> => {
+  const mutationKey = ["procesarMensaje"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof procesarMensaje>>,
+    { texto: string; chatId?: string | null }
+  > = (props) => {
+    return procesarMensaje(props, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export function useProcesarMensaje<
+  TError = ErrorType<any>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof procesarMensaje>>,
+    TError,
+    { texto: string; chatId?: string | null },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof procesarMensaje>>,
+  TError,
+  { texto: string; chatId?: string | null },
+  TContext
+> {
+  return useMutation(getProcesarMensajeMutationOptions(options));
+}
+
+// ─── Etiquetar persona ─────────────────────────────────────
+
+export const getEtiquetarPersonaUrl = (personaId: string) => {
+  return `/api/personas/${personaId}/etiquetar`;
+};
+
+export const etiquetarPersona = async (
+  personaId: string,
+  body: { etiquetaId?: string | null; nombre?: string | null },
+  options?: RequestInit,
+): Promise<any> => {
+  return customFetch<any>(getEtiquetarPersonaUrl(personaId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+};
+
+export const getEtiquetarPersonaMutationOptions = <
+  TError = ErrorType<any>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof etiquetarPersona>>,
+    TError,
+    { personaId: string; body: { etiquetaId?: string | null; nombre?: string | null } },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof etiquetarPersona>>,
+  TError,
+  { personaId: string; body: { etiquetaId?: string | null; nombre?: string | null } },
+  TContext
+> => {
+  const mutationKey = ["etiquetarPersona"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof etiquetarPersona>>,
+    { personaId: string; body: { etiquetaId?: string | null; nombre?: string | null } }
+  > = (props) => {
+    return etiquetarPersona(props.personaId, props.body, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export function useEtiquetarPersona<
+  TError = ErrorType<any>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof etiquetarPersona>>,
+    TError,
+    { personaId: string; body: { etiquetaId?: string | null; nombre?: string | null } },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof etiquetarPersona>>,
+  TError,
+  { personaId: string; body: { etiquetaId?: string | null; nombre?: string | null } },
+  TContext
+> {
+  return useMutation(getEtiquetarPersonaMutationOptions(options));
+}
+
+// ─── Subir foto ────────────────────────────────────────────
+
+export const getSubirFotoUrl = (personaId: string) => {
+  return `/api/personas/${personaId}/foto`;
+};
+
+export const subirFoto = async (
+  personaId: string,
+  file: File,
+  options?: RequestInit,
+): Promise<any> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return customFetch<any>(getSubirFotoUrl(personaId), {
+    ...options,
+    method: "POST",
+    body: formData,
+  });
+};
+
+export const getSubirFotoMutationOptions = <
+  TError = ErrorType<any>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof subirFoto>>,
+    TError,
+    { personaId: string; file: File },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof subirFoto>>,
+  TError,
+  { personaId: string; file: File },
+  TContext
+> => {
+  const mutationKey = ["subirFoto"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof subirFoto>>,
+    { personaId: string; file: File }
+  > = (props) => {
+    return subirFoto(props.personaId, props.file, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export function useSubirFoto<
+  TError = ErrorType<any>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof subirFoto>>,
+    TError,
+    { personaId: string; file: File },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof subirFoto>>,
+  TError,
+  { personaId: string; file: File },
+  TContext
+> {
+  return useMutation(getSubirFotoMutationOptions(options));
+}
+
+// ─── Listar etiquetas ──────────────────────────────────────
+
+export const getGetEtiquetasUrl = () => {
+  return `/api/etiquetas`;
+};
+
+export const getEtiquetas = async (
+  options?: RequestInit,
+): Promise<any> => {
+  return customFetch<any>(getGetEtiquetasUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetEtiquetasQueryKey = () => {
+  return [`/api/etiquetas`] as const;
+};
+
+export const getGetEtiquetasQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEtiquetas>>,
+  TError = ErrorType<any>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getEtiquetas>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetEtiquetasQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getEtiquetas>>> = ({
+    signal,
+  }) => getEtiquetas({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEtiquetas>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useGetEtiquetas<
+  TData = Awaited<ReturnType<typeof getEtiquetas>>,
+  TError = ErrorType<any>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getEtiquetas>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEtiquetasQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+// ─── Crear etiqueta ────────────────────────────────────────
+
+export const getCrearEtiquetaUrl = () => {
+  return `/api/etiquetas`;
+};
+
+export const crearEtiqueta = async (
+  body: { nombre: string; descripcion?: string | null },
+  options?: RequestInit,
+): Promise<any> => {
+  return customFetch<any>(getCrearEtiquetaUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+};
+
+export const getCrearEtiquetaMutationOptions = <
+  TError = ErrorType<any>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof crearEtiqueta>>,
+    TError,
+    { nombre: string; descripcion?: string | null },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof crearEtiqueta>>,
+  TError,
+  { nombre: string; descripcion?: string | null },
+  TContext
+> => {
+  const mutationKey = ["crearEtiqueta"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof crearEtiqueta>>,
+    { nombre: string; descripcion?: string | null }
+  > = (props) => {
+    return crearEtiqueta(props, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export function useCrearEtiqueta<
+  TError = ErrorType<any>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof crearEtiqueta>>,
+    TError,
+    { nombre: string; descripcion?: string | null },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof crearEtiqueta>>,
+  TError,
+  { nombre: string; descripcion?: string | null },
+  TContext
+> {
+  return useMutation(getCrearEtiquetaMutationOptions(options));
+}

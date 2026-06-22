@@ -19,6 +19,8 @@ import Glosario from "@/pages/glosario";
 import Admin from "@/pages/admin";
 import Fuentes from "@/pages/fuentes";
 import Proximamente from "@/pages/proximamente";
+import Investigacion from "@/pages/investigacion";
+import PersonaDetalle from "@/pages/persona-detalle";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,6 +49,8 @@ function Router() {
         <Route path="/acerca" component={Acerca} />
         <Route path="/admin" component={Admin} />
         <Route path="/fuentes" component={Fuentes} />
+        <Route path="/investigacion" component={Investigacion} />
+        <Route path="/investigacion/:dni" component={PersonaDetalle} />
         <Route path="/proximamente" component={Proximamente} />
         <Route component={NotFound} />
       </Switch>
