@@ -47,3 +47,4 @@ drizzle/migrations/meta/
 .vercel
 coverage/
 .env
+__pycache__/
