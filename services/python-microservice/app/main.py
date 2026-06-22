@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import procesar, fotos, telegram
+from app.routers import procesar, fotos, telegram, conversacion
 from app.models.schemas import HealthResponse
 
 logging.basicConfig(
@@ -30,6 +30,7 @@ app.add_middleware(
 app.include_router(procesar.router, tags=["Procesamiento"])
 app.include_router(fotos.router, tags=["Fotos"])
 app.include_router(telegram.router, tags=["Telegram"])
+app.include_router(conversacion.router, tags=["Conversacion"])
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
