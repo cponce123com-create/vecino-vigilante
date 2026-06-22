@@ -6,3 +6,4 @@ python-multipart>=0.0.5
 pydantic-settings>=2.0
 httpx>=0.24
 google-genai>=1.0
+telethon>=1.35
