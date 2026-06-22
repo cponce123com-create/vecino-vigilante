@@ -25,15 +25,15 @@ services:
     branch: main
     rootDir: .
 
-    # Build: solo instala dependencias del API (evita OOM en plan free)
+    # Build: esbuild empaqueta todo, no necesita node_modules en runtime
     buildCommand: |
       corepack enable &&
       corepack prepare pnpm@9.15.0 --activate &&
-      pnpm install --filter @workspace/api-server... --no-frozen-lockfile &&
+      pnpm install --filter @workspace/api-server --no-frozen-lockfile &&
       pnpm --filter @workspace/api-server run build
 
-    # Start: corre el bundle compilado
-    startCommand: pnpm --filter @workspace/api-server run start
+    # Start: el bundle es standalone, no necesita pnpm
+    startCommand: node --enable-source-maps ./artifacts/api-server/dist/index.mjs
 
     # Health check
     healthCheckPath: /api/health
