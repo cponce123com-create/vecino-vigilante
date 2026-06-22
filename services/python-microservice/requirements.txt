@@ -1,8 +1,8 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.0
-spacy==3.8.0
-cloudinary==1.41.0
-python-multipart==0.0.9
-pydantic-settings==2.5.0
-httpx==0.28.0
-google-genai==1.14.0
+fastapi>=0.100
+uvicorn[standard]>=0.20
+spacy>=3.7
+cloudinary>=1.40
+python-multipart>=0.0.5
+pydantic-settings>=2.0
+httpx>=0.24
+google-genai>=1.0
