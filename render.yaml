@@ -4,6 +4,7 @@
 #
 # Este archivo define TODA la infraestructura en Render:
 # - 1 Web Service (backend API)
+# - 1 Web Service (Python microservice)
 # - 1 Static Site (frontend React)
 #
 # La base de datos NO está aquí porque usas Neon (externa).
@@ -20,42 +21,36 @@ services:
     name: vecino-vigilante-api
     runtime: node
     plan: free
-    region: oregon # Cambia a 'ohio' si prefieres costa este USA
-    branch: main # La rama de tu repo desde donde se despliega
+    region: oregon
+    branch: main
     rootDir: .
-    
-    # Build: instala todo el monorepo y compila el api-server
+
+    # Build: solo instala dependencias del API (evita OOM en plan free)
     buildCommand: |
       corepack enable &&
       corepack prepare pnpm@9.15.0 --activate &&
-      pnpm install --no-frozen-lockfile &&
+      pnpm install --filter @workspace/api-server... --no-frozen-lockfile &&
       pnpm --filter @workspace/api-server run build
-    
+
     # Start: corre el bundle compilado
     startCommand: pnpm --filter @workspace/api-server run start
-    
-    # Health check: Render pinga este endpoint para saber si está vivo
+
+    # Health check
     healthCheckPath: /api/health
-    
+
     envVars:
       - key: NODE_ENV
         value: production
-      
+
       - key: NODE_VERSION
         value: "24"
-      
-      # PORT lo inyecta Render automáticamente (no hay que setearlo)
-      
-      # IMPORTANTE: estas variables las DEBES configurar manualmente
-      # en el dashboard de Render después del primer deploy.
-      # Las dejo marcadas como "sync: false" para que Render te pida
-      # que las llenes.
+
       - key: DATABASE_URL
-        sync: false # Tu URL de Neon
-      
+        sync: false
+
       - key: SYNC_SECRET
-        sync: false # String aleatorio para proteger /api/sync
-      
+        sync: false
+
       - key: OCDS_API_BASE
         value: https://contratacionesabiertas.osce.gob.pe/api
 
@@ -84,25 +79,18 @@ services:
 
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
-
       - key: CLOUDINARY_API_KEY
         sync: false
-
       - key: CLOUDINARY_API_SECRET
         sync: false
-
       - key: GEMINI_API_KEY
         sync: false
-
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-
       - key: TELEGRAM_WEBHOOK_URL
         sync: false
-
       - key: NODEJS_API_URL
         sync: false
-
       - key: TELEGRAM_API_ID
         sync: false
       - key: TELEGRAM_API_HASH
@@ -120,25 +108,20 @@ services:
     plan: free
     branch: main
     rootDir: .
-    
-    # Build: compila el frontend a HTML/JS/CSS estático
+
     buildCommand: |
       corepack enable &&
       corepack prepare pnpm@9.15.0 --activate &&
       pnpm install --no-frozen-lockfile &&
       pnpm --filter @workspace/vecino-vigilante run build
-    
-    # Dónde quedó el build final
+
     staticPublishPath: ./artifacts/vecino-vigilante/dist/public
-    
-    # Reglas de rewrite para React Router (SPA)
-    # Sin esto, recargar /distrito/120301 daría 404
+
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
-    
-    # Headers de seguridad y cache
+
     headers:
       - path: /*
         name: X-Frame-Options
@@ -152,9 +135,7 @@ services:
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
-    
+
     envVars:
-      # La URL del backend — la obtendrás DESPUÉS de que el API
-      # haga su primer deploy exitoso. Déjala como sync: false.
       - key: VITE_API_BASE_URL
         sync: false
