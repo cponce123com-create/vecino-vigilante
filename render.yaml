@@ -25,15 +25,17 @@ services:
     branch: main
     rootDir: .
 
-    # Build: esbuild empaqueta todo, no necesita node_modules en runtime
+    # Build: pnpm deploy crea directorio auto-contenido con SOLO las
+    # dependencias necesarias para api-server (evita OOM del monorepo)
     buildCommand: |
       corepack enable &&
       corepack prepare pnpm@9.15.0 --activate &&
-      pnpm install --filter @workspace/api-server --no-frozen-lockfile &&
-      pnpm --filter @workspace/api-server run build
+      pnpm deploy --filter @workspace/api-server ./deploy &&
+      cd deploy &&
+      node ./artifacts/api-server/build.mjs
 
     # Start: el bundle es standalone, no necesita pnpm
-    startCommand: node --enable-source-maps ./artifacts/api-server/dist/index.mjs
+    startCommand: node --enable-source-maps ./deploy/artifacts/api-server/dist/index.mjs
 
     # Health check
     healthCheckPath: /api/health

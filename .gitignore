@@ -48,3 +48,4 @@ drizzle/migrations/meta/
 coverage/
 .env
 __pycache__/
+/deploy
